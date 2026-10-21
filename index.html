@@ -439,7 +439,7 @@ const Calc = (() => {
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 
 
@@ -1330,11 +1330,12 @@ window.doLogin = doLogin; window.doActivate = doActivate;
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 
 
-const A = { page: store.get('aa_admin_page') || 'dash', user: null, admin: null, settings: {}, shifts: {}, shiftList: [], holidays: {}, holidayList: [], emps: [], agencies: [],
+const stale = (tok) => tok !== undefined && tok !== A.nav;
+const A = { nav: 0, page: store.get('aa_admin_page') || 'dash', user: null, admin: null, settings: {}, shifts: {}, shiftList: [], holidays: {}, holidayList: [], emps: [], agencies: [],
   cycle: null, agencyFilter: '', recFrom: '', recTo: '', recEmp: '', ts: null, offset: 0 };
 
 /* ===== Helpers ===== */
@@ -1346,7 +1347,7 @@ const TH_M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 
 const TH_D = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 const TH_DF = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
 const fd = (d, full) => (full ? TH_DF[Calc.dow(d)] + ' ' : '') + (+d.slice(8, 10)) + ' ' + TH_M[+d.slice(5, 7) - 1] + ' ' + (+d.slice(0, 4) + 543);
-const ERR = { NOT_ADMIN: 'บัญชีนี้ไม่ใช่ Admin', NEED_REASON: 'ต้องใส่เหตุผลอย่างน้อย 3 ตัวอักษร', NEED_IN: 'ต้องมีเวลาเข้างาน', BAD_TIME: 'เวลาออกต้องหลังเวลาเข้า',
+const ERR = { PIN_FORMAT: 'PIN ต้องเป็นตัวเลข 6 หลัก', PW_SHORT: 'รหัสผ่านอย่างน้อย 6 ตัว', SELF: 'ลบบัญชีตัวเองไม่ได้', NO_AUTH_USER: 'ยังไม่มีบัญชีล็อกอิน', SIGNUP_FAILED: 'สร้างบัญชีไม่สำเร็จ — ตรวจว่าใน Supabase เปิด Allow new users to sign up ไว้', NOT_ADMIN: 'บัญชีนี้ไม่ใช่ Admin', NEED_REASON: 'ต้องใส่เหตุผลอย่างน้อย 3 ตัวอักษร', NEED_IN: 'ต้องมีเวลาเข้างาน', BAD_TIME: 'เวลาออกต้องหลังเวลาเข้า',
   OVERLAP: 'มีรายการแจ้งในช่วงนี้อยู่แล้ว', NOT_FOUND: 'ไม่พบข้อมูล', BAD_CODE: 'รหัสไม่ถูกต้อง', TOO_LONG: 'ไม่เกิน 31 วัน', BAD_DATE: 'วันที่ไม่ถูกต้อง' };
 function errMsg(e) {
   const raw = (e && (e.message || e.error_description)) || String(e || '');
@@ -1428,13 +1429,73 @@ async function loadRef() {
 }
 async function logout() { await sb.auth.signOut(); location.reload(); }
 
+/* ===== บัญชีผู้ใช้ (สร้างจากหน้าเว็บ ไม่ต้องเข้า Supabase) ===== */
+let tmpSb = null;
+function tmpClient() {
+  return tmpSb || (tmpSb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'aa-tmp-signup' } }));
+}
+// สร้างบัญชีล็อกอินด้วย client แยก (Admin ที่ล็อกอินอยู่ไม่หลุด) · คืน true ถ้ามีบัญชีอยู่แล้ว
+async function ensureAuthUser(email, password) {
+  const r = await tmpClient().auth.signUp({ email, password });
+  if (r.error) { if (/already registered|already exists/i.test(r.error.message)) return true; throw r.error; }
+  try { await tmpClient().auth.signOut(); } catch (e) { /* ignore */ }
+  if (!r.data || !r.data.user) throw new Error('SIGNUP_FAILED');
+  return false;
+}
+async function setEmpPin(emp, pin) {
+  if (!/^\d{6}$/.test(pin)) throw new Error('PIN_FORMAT');
+  let r = await sb.rpc('admin_set_pin', { p_emp: emp, p_pin: pin }); if (r.error) throw r.error;
+  if (r.data === 'NO_AUTH_USER') {
+    const em = await sb.rpc('admin_emp_email', { p_emp: emp }); if (em.error) throw em.error;
+    await ensureAuthUser(em.data, pin);
+    r = await sb.rpc('admin_set_pin', { p_emp: emp, p_pin: pin }); if (r.error) throw r.error;
+    if (r.data === 'NO_AUTH_USER') throw new Error('SIGNUP_FAILED');
+  }
+}
+function pinModal(emp) {
+  const e = empById(emp);
+  modal(`<div class="row between"><h2 class="h2">ตั้ง PIN · ${esc(emp)}</h2><button class="btn sm ghost" data-a="close">ปิด</button></div>
+    <div class="sub">${esc(e.display_name)} · ตั้งแล้วบอก PIN ให้พนักงาน → พนักงานล็อกอินด้วยรหัสพนักงาน + PIN ได้ทันที</div>
+    <div class="fgrid"><label class="field">PIN ใหม่ (ตัวเลข 6 หลัก)<input class="input num" id="np1" inputmode="numeric" maxlength="6" autocomplete="off" style="letter-spacing:.3em;font-size:18px"></label>
+      <label class="field">ยืนยัน PIN<input class="input num" id="np2" inputmode="numeric" maxlength="6" autocomplete="off" style="letter-spacing:.3em;font-size:18px"></label></div>
+    <button class="btn sm ghost" data-a="randPin" style="align-self:flex-start">สุ่ม PIN</button>
+    <button class="btn primary" data-a="savePin" data-v="${esc(emp)}" id="pinBtn">บันทึก PIN</button>`);
+}
+async function savePin(emp) {
+  const p1 = $('np1').value.trim(), p2 = $('np2').value.trim();
+  if (p1 !== p2) return toast('PIN ทั้ง 2 ช่องไม่ตรงกัน', true);
+  $('pinBtn').disabled = true;
+  try {
+    await setEmpPin(emp, p1);
+    modal(`<h2 class="h2">ตั้ง PIN แล้ว · ${esc(emp)}</h2><div style="font-size:40px;font-weight:700;letter-spacing:.2em;text-align:center" class="num">${esc(p1)}</div>
+      <div class="sub">แจ้งพนักงาน: เปิด ${esc(location.origin + location.pathname)} → ใส่ <b>${esc(emp)}</b> + PIN นี้ · มือถือเครื่องแรกที่ลงเวลาจะถูกผูกกับบัญชี</div><button class="btn primary" data-a="close">เสร็จ</button>`);
+    await loadRef(); if (A.page === 'emp') pageEmp();
+  } catch (e) { toast(errMsg(e), true); if ($('pinBtn')) $('pinBtn').disabled = false; }
+}
+function pwModal(email, self) {
+  modal(`<div class="row between"><h2 class="h2">${self ? 'เปลี่ยนรหัสผ่านของฉัน' : 'ตั้งรหัสผ่านใหม่'}</h2><button class="btn sm ghost" data-a="close">ปิด</button></div>
+    <div class="sub">${esc(email)}</div>
+    <div class="fgrid"><label class="field">รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)<input class="input" id="pw1" type="password" autocomplete="new-password"></label>
+      <label class="field">ยืนยันรหัสผ่าน<input class="input" id="pw2" type="password" autocomplete="new-password"></label></div>
+    <button class="btn primary" data-a="savePw" data-v="${esc(email)}" data-self="${self ? '1' : ''}" id="pwBtn">บันทึก</button>`);
+}
+async function savePw(email, self) {
+  const p1 = $('pw1').value, p2 = $('pw2').value;
+  if (p1.length < 6) return toast('รหัสผ่านอย่างน้อย 6 ตัว', true);
+  if (p1 !== p2) return toast('รหัสผ่านทั้ง 2 ช่องไม่ตรงกัน', true);
+  $('pwBtn').disabled = true;
+  const r = self ? await sb.auth.updateUser({ password: p1 }) : await sb.rpc('admin_set_password', { p_email: email, p_password: p1 });
+  if (r.error) { $('pwBtn').disabled = false; return toast(errMsg(r.error), true); }
+  closeModal(); toast('เปลี่ยนรหัสผ่านแล้ว');
+}
+
 /* ===== Shell ===== */
 function renderShell() {
   $('aroot').innerHTML = `<div class="layout">
     <aside class="side"><div class="brand"><span class="avatar" style="background:var(--green);width:36px;height:36px">${ICON.pin}</span><div class="col" style="line-height:1.25"><b style="font-size:15px">Agency Attendance</b><span style="font-size:12px;color:#A9BDD0">${esc((A.settings.site || {}).name || 'WFDC')}</span></div></div>
       ${PAGES.map(([k, l, ic]) => `<button data-a="go" data-v="${k}" id="nav-${k}">${ic}${l}</button>`).join('')}
       <div style="margin-top:auto;padding:12px;border-radius:10px;background:#1A3F60;font-size:13px" class="col"><b>${esc(A.admin.name || A.admin.email)}</b><span style="color:#A9BDD0">${A.admin.role === 'it' ? 'IT Admin' : 'HR'} · ${esc(A.admin.email)}</span>
-        <button class="btn sm" style="margin-top:8px;background:#1F4A70;color:#fff" data-a="logout">ออกจากระบบ</button></div></aside>
+        <div class="row" style="gap:6px;margin-top:8px"><button class="btn sm" style="flex:1;background:#1F4A70;color:#fff" data-a="myPw">เปลี่ยนรหัสผ่าน</button><button class="btn sm" style="flex:1;background:#1F4A70;color:#fff" data-a="logout">ออกจากระบบ</button></div></div></aside>
     <div class="mtop"><div class="col"><span style="font-size:12px;color:#A9BDD0">Admin · ${esc((A.settings.site || {}).name || 'WFDC')}</span><b id="mtitle"></b></div><select class="input" style="max-width:150px" id="mselect">${PAGES.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
     <main class="content" id="page"></main>
     <nav class="mnav">${PAGES.filter(([k]) => ['dash', 'rec', 'ts', 'emp'].includes(k)).map(([k, l, ic]) => `<button data-a="go" data-v="${k}" id="mnav-${k}">${ic}${l.split(' ')[0]}</button>`).join('')}</nav></div>`;
@@ -1445,7 +1506,8 @@ function go(p) {
   const ms = $('mselect'); if (ms) ms.value = p;
   const mt = $('mtitle'); if (mt) mt.textContent = (PAGES.find((x) => x[0] === p) || [])[1] || '';
   $('page').innerHTML = '<div class="card" style="text-align:center"><span class="spinner"></span></div>';
-  ({ dash: pageDash, rec: pageRec, ts: pageTs, leave: pageLeave, emp: pageEmp, set: pageSet }[p] || pageDash)().catch((e) => { $('page').innerHTML = `<div class="card">${esc(errMsg(e))}</div>`; });
+  const tok = ++A.nav;
+  ({ dash: pageDash, rec: pageRec, ts: pageTs, leave: pageLeave, emp: pageEmp, set: pageSet }[p] || pageDash)(tok).catch((e) => { if (tok === A.nav && $('page')) $('page').innerHTML = `<div class="card">${esc(errMsg(e))}</div>`; });
 }
 
 /* ===== Data helpers ===== */
@@ -1480,11 +1542,12 @@ const agencySelect = (id, val, allLabel) => `<select class="input" id="${id}"><o
 const empSelect = (id, val, onlyActive) => `<select class="input" id="${id}"><option value="">— เลือกพนักงาน —</option>${A.emps.filter((e) => !onlyActive || e.status === 'Active').map((e) => `<option value="${esc(e.emp_id)}" ${val === e.emp_id ? 'selected' : ''}>${esc(e.emp_id)} · ${esc(short(e.display_name))}</option>`).join('')}</select>`;
 
 /* ===== Dashboard ===== */
-async function pageDash() {
+async function pageDash(tok) {
   const td = today(), yd = Calc.addDays(td, -1);
   const cyc = Calc.cycleOf(td, +(A.settings.cycle_start_day || 26));
   const data = await fetchRange(Calc.addDays(cyc.from, -1), cyc.to);
   const fixQ = await sb.from('attendance').select('*').not('fix_requested_at', 'is', null).order('fix_requested_at', { ascending: false }).limit(50);
+  if (stale(tok)) return;
   const all = computeAll(cyc.from, cyc.to, data);
   const active = all.filter((x) => x.emp.status === 'Active');
   const rows = active.map((x) => ({ ...x, d: x.days.find((d) => d.date === td) })).filter((x) => x.d);
@@ -1568,7 +1631,7 @@ async function pageDash() {
 }
 
 /* ===== Records ===== */
-async function pageRec() {
+async function pageRec(tok) {
   const td = today();
   if (!A.recFrom) { A.recFrom = Calc.addDays(td, -6); A.recTo = td; }
   $('page').innerHTML = `<div class="row between wrap"><h1 class="h1">บันทึกเข้า-ออก + รูป</h1><button class="btn primary" data-a="editAtt" data-v="">+ เพิ่มรายการ (Admin)</button></div>
@@ -1581,6 +1644,7 @@ async function loadRec() {
   let q = sb.from('attendance').select('*').gte('work_date', A.recFrom).lte('work_date', A.recTo).order('in_at', { ascending: false }).limit(1000);
   if (A.recEmp) q = q.eq('emp_id', A.recEmp);
   const { data, error } = await q; if (error) throw error;
+  if (!$('recBody')) return;
   const maxAcc = +(A.settings.max_accuracy || 50);
   const ph = (p, purged) => p ? (purged ? '<span class="lbl">ลบแล้ว</span>' : `<button class="thumb" data-a="photo" data-v="${esc(p)}" aria-label="ดูรูป"><img class="thumb" data-photo="${esc(p)}" alt=""></button>`) : '<span class="lbl">–</span>';
   $('recBody').innerHTML = `<div class="scroll"><table class="tbl" style="min-width:980px"><thead><tr><th>วันที่</th><th>พนักงาน</th><th>กะ</th><th>เข้า</th><th>รูปเข้า</th><th>ออก</th><th>รูปออก</th><th>ระยะ / GPS</th><th>หมายเหตุ</th><th></th></tr></thead><tbody>
@@ -1628,13 +1692,14 @@ async function showPhoto(path) {
 }
 
 /* ===== Timesheet ===== */
-async function pageTs() {
+async function pageTs(tok) {
   const c = A.cycle;
   $('page').innerHTML = `<div class="row between wrap"><div class="col"><h1 class="h1">Timesheet รอบ ${fd(c.from)} – ${fd(c.to)}</h1><span class="sub">${esc((A.settings.site || {}).name || '')} · คิดจากบันทึกเข้า-ออก + ใบลา + ปฏิทิน PH</span></div>
       <div class="row wrap noprint"><button class="btn ghost" data-a="cyc" data-v="-1">‹ รอบก่อน</button><button class="btn ghost" data-a="cyc" data-v="1">รอบถัดไป ›</button>${agencySelect('tsAg', A.agencyFilter)}
       <button class="btn primary" data-a="xlsx">Export Excel</button><button class="btn navy" data-a="print">PDF / พิมพ์</button></div></div>
     <div id="tsBody"><div class="card" style="text-align:center"><span class="spinner"></span></div></div>`;
   const data = await fetchRange(c.from, c.to);
+  if (stale(tok) || !$('tsBody')) return;
   A.ts = { cycle: c, data, rows: computeAll(c.from, c.to, data) };
   paintTs();
 }
@@ -1732,10 +1797,11 @@ async function exportXlsx() {
 }
 
 /* ===== Leave / Holidays ===== */
-async function pageLeave() {
+async function pageLeave(tok) {
   const c = A.cycle;
   const [rq] = await Promise.all([sb.from('requests').select('*').lte('date_from', c.to).gte('date_to', Calc.addDays(c.from, -31)).order('date_from', { ascending: false }).limit(500)]);
   if (rq.error) throw rq.error;
+  if (stale(tok)) return;
   const reqs = rq.data || [];
   $('page').innerHTML = `<div class="row between wrap"><h1 class="h1">ลา / วันหยุด / PH</h1><div class="row"><button class="btn ghost" data-a="cyc" data-v="-1">‹ รอบก่อน</button><span class="sub">${fd(c.from)} – ${fd(c.to)}</span><button class="btn ghost" data-a="cyc" data-v="1">รอบถัดไป ›</button></div></div>
     <div class="row wrap" style="align-items:flex-start;gap:16px">
@@ -1779,17 +1845,18 @@ async function addHol() {
 async function delHol(d) { if (!confirm('ลบวันหยุด ' + fd(d) + '?')) return; const { error } = await sb.from('holidays').delete().eq('hdate', d); if (error) return toast(errMsg(error), true); await loadRef(); go('leave'); }
 
 /* ===== Employees ===== */
-async function pageEmp() {
+async function pageEmp(tok) {
   await loadRef();
+  if (stale(tok)) return;
   const list = A.emps.filter((e) => !A.agencyFilter || e.agency === A.agencyFilter);
   $('page').innerHTML = `<div class="row between wrap"><h1 class="h1">พนักงาน</h1><div class="row wrap">${agencySelect('empAg', A.agencyFilter)}<button class="btn ghost" data-a="import">นำเข้า CSV</button><button class="btn primary" data-a="editEmp" data-v="">+ เพิ่มพนักงาน</button></div></div>
-    <div class="card" style="font-size:13px;color:var(--ink2);line-height:1.6">พนักงานใหม่จะได้ <b>รหัสเปิดใช้งาน 6 หลัก</b> → ส่งให้พนักงานพร้อมลิงก์แอป → พนักงานกด “เข้าครั้งแรก” ใส่รหัส แล้วตั้ง PIN เอง · ลืม PIN = กด “รีเซ็ตบัญชี” ได้รหัสใหม่ · เปลี่ยนมือถือ = “รีเซ็ตเครื่อง”</div>
+    <div class="card" style="font-size:13px;color:var(--ink2);line-height:1.6"><b>ตั้ง PIN</b> = Admin กำหนด PIN 6 หลักให้ แล้วบอกพนักงาน → พนักงานล็อกอินด้วยรหัสพนักงาน + PIN ได้ทันที (ใช้แก้ลืม PIN ได้ด้วย) · หรือให้รหัสเปิดใช้งาน 6 หลัก แล้วพนักงานตั้ง PIN เอง · ลืม PIN = กด “รีเซ็ตบัญชี” ได้รหัสใหม่ · เปลี่ยนมือถือ = “รีเซ็ตเครื่อง”</div>
     <section class="card" style="padding:0"><div class="scroll"><table class="tbl" style="min-width:900px"><thead><tr><th>รหัส</th><th>ชื่อ-สกุล</th><th>Agency</th><th>เริ่มงาน</th><th>สถานะ</th><th>บัญชีแอป</th><th>เบี้ยพิเศษ/วัน</th><th></th></tr></thead><tbody>
     ${list.map((e) => `<tr style="${e.status === 'Resign' ? 'opacity:.55' : ''}"><td><b>${esc(e.emp_id)}</b></td><td>${esc(e.display_name)}</td><td>${esc(e.agency || '')}</td><td>${e.start_date ? fd(e.start_date) : ''}</td>
       <td>${e.status === 'Active' ? '<span class="chip ok">Active</span>' : `<span class="chip gray">Resign ${e.resign_date ? fd(e.resign_date) : ''}</span>`}</td>
       <td>${e.user_id ? `<span class="chip info">ใช้งานแล้ว</span>${e.device_id ? ' <span class="lbl">ผูกเครื่องแล้ว</span>' : ''}` : e.status === 'Active' ? `<span class="chip warn">รหัสเปิดใช้: <b class="num" style="letter-spacing:.08em">${esc(e.activate_code || '-')}</b></span>${e.activate_tries >= 10 ? ' <span class="chip bad">ล็อก</span>' : ''}` : ''}</td>
       <td class="num">${(+e.extra_allowance || 0).toFixed(2)}</td>
-      <td><div class="row" style="gap:6px;justify-content:flex-end"><button class="btn sm ghost" data-a="editEmp" data-v="${esc(e.emp_id)}">แก้ไข</button>${e.status === 'Active' ? `<button class="btn sm ghost" data-a="resetDev" data-v="${esc(e.emp_id)}" ${e.device_id ? '' : 'disabled'}>รีเซ็ตเครื่อง</button><button class="btn sm danger" data-a="resetAcc" data-v="${esc(e.emp_id)}">รีเซ็ตบัญชี</button>` : ''}</div></td></tr>`).join('')}
+      <td><div class="row" style="gap:6px;justify-content:flex-end"><button class="btn sm ghost" data-a="editEmp" data-v="${esc(e.emp_id)}">แก้ไข</button>${e.status === 'Active' ? `<button class="btn sm ghost" data-a="resetDev" data-v="${esc(e.emp_id)}" ${e.device_id ? '' : 'disabled'}>รีเซ็ตเครื่อง</button><button class="btn sm primary" data-a="pin" data-v="${esc(e.emp_id)}">ตั้ง PIN</button><button class="btn sm danger" data-a="resetAcc" data-v="${esc(e.emp_id)}">รีเซ็ตบัญชี</button>` : ''}</div></td></tr>`).join('')}
     </tbody></table></div></section>`;
 }
 function editEmp(id) {
@@ -1871,7 +1938,7 @@ async function doImport() {
 }
 
 /* ===== Settings ===== */
-async function pageSet() {
+async function pageSet(tok) {
   await loadRef();
   const s = A.settings, site = s.site || {}, R = s.rates || {}, W = s.watermark || {};
   const n = (k, label, val, step) => `<label class="field">${label}<input class="input num" type="number" step="${step || 1}" id="s_${k}" value="${esc(val ?? '')}"></label>`;
@@ -1879,6 +1946,7 @@ async function pageSet() {
   const isIt = A.admin.role === 'it';
   const adm = isIt ? (await sb.from('admins').select('*').order('email')).data || [] : [];
   const audit = (await sb.from('audit_log').select('*').order('id', { ascending: false }).limit(30)).data || [];
+  if (stale(tok)) return;
   $('page').innerHTML = `<h1 class="h1">ตั้งค่า</h1>
     <section class="card col" style="gap:14px"><div class="row between wrap"><h2 class="h2">จุดเช็คอิน (Geofence)</h2><button class="btn navy" data-a="here">ใช้ตำแหน่งปัจจุบัน</button></div>
       <div class="sub">ยืนอยู่ที่จุดเช็คอินแล้วกด “ใช้ตำแหน่งปัจจุบัน” · รัศมีไม่เกิน 200 ม.</div>
@@ -1901,9 +1969,10 @@ async function pageSet() {
     <div class="row wrap" style="align-items:flex-start;gap:16px">
       <section class="card col" style="flex:1 1 300px;gap:12px"><h2 class="h2">Agency</h2><div class="row"><input class="input" id="newAg" placeholder="ชื่อ Agency" style="flex:1"><button class="btn primary" data-a="addAg">เพิ่ม</button></div>
         <div class="row wrap">${A.agencies.map((a) => `<span class="chip gray">${esc(a.name)}</span>`).join('')}</div></section>
-      ${isIt ? `<section class="card col" style="flex:1 1 360px;gap:12px"><h2 class="h2">ผู้ดูแลระบบ</h2><div class="sub" style="font-size:13px">เพิ่มอีเมลที่นี่ แล้วสร้างบัญชีที่ Supabase → Authentication → Add user (ติ๊ก Auto Confirm)</div>
-        <div class="row wrap"><input class="input" id="newAdm" type="email" placeholder="email@company.com" style="flex:2;min-width:180px"><input class="input" id="newAdmName" placeholder="ชื่อ" style="flex:1;min-width:100px"><select class="input" id="newAdmRole"><option value="hr">HR</option><option value="it">IT</option></select><button class="btn primary" data-a="addAdm">เพิ่ม</button></div>
-        ${adm.map((x) => `<div class="row between" style="padding:6px 0;border-bottom:1px solid #EEF1F4"><div class="col"><b style="font-size:14px;font-weight:600">${esc(x.email)}</b><span class="lbl">${esc(x.name || '')} · ${x.role === 'it' ? 'IT' : 'HR'}</span></div>${x.email !== A.admin.email ? `<button class="btn sm danger" data-a="delAdm" data-v="${esc(x.email)}">ลบ</button>` : ''}</div>`).join('')}</section>` : ''}
+      ${isIt ? `<section class="card col" style="flex:1 1 360px;gap:12px"><h2 class="h2">ผู้ดูแลระบบ</h2><div class="sub" style="font-size:13px">กรอกแล้วกด “สร้าง” → ล็อกอินได้ทันทีที่หน้าเดียวกับพนักงาน (พิมพ์อีเมล) · HR = ใช้งานทุกหน้า ยกเว้นจัดการ Admin</div>
+        <div class="fgrid"><input class="input" id="newAdm" type="email" placeholder="email@company.com" autocomplete="off"><input class="input" id="newAdmName" placeholder="ชื่อ"><select class="input" id="newAdmRole"><option value="hr">HR</option><option value="it">IT</option></select><input class="input" id="newAdmPw" type="password" placeholder="รหัสผ่านเริ่มต้น (≥6 ตัว)" autocomplete="new-password"></div>
+        <button class="btn primary" data-a="addAdm" id="addAdmBtn" style="align-self:flex-start">สร้าง Admin</button>
+        ${adm.map((x) => `<div class="row between wrap" style="padding:8px 0;border-bottom:1px solid #EEF1F4;gap:8px"><div class="col"><b style="font-size:14px;font-weight:600">${esc(x.email)}</b><span class="lbl">${esc(x.name || '')} · ${x.role === 'it' ? 'IT' : 'HR'}</span></div><div class="row" style="gap:6px"><button class="btn sm ghost" data-a="admPw" data-v="${esc(x.email)}">ตั้งรหัสผ่านใหม่</button>${x.email !== A.admin.email ? `<button class="btn sm danger" data-a="delAdm" data-v="${esc(x.email)}">ลบ</button>` : ''}</div></div>`).join('')}</section>` : ''}
     </div>
     <section class="card col" style="gap:12px"><div class="row between wrap"><h2 class="h2">รูปหลักฐาน</h2><button class="btn danger" data-a="cleanup">ลบรูปที่เก่ากว่า ${s.photo_retention_days ?? 90} วันตอนนี้</button></div>
       <div class="sub">ระบบลบรูปเก่าให้อัตโนมัติวันละครั้งเมื่อ Admin เปิดหน้านี้ · ข้อมูลเวลา/พิกัดยังเก็บถาวร</div><div id="cleanRes" class="sub"></div></section>
@@ -1940,11 +2009,22 @@ async function saveShifts() {
 }
 async function addAg() { const n = $('newAg').value.trim(); if (!n) return; const { error } = await sb.from('agencies').insert({ name: n }); if (error) return toast(errMsg(error), true); pageSet(); }
 async function addAdm() {
-  const email = $('newAdm').value.trim().toLowerCase(); if (!email) return;
-  const { error } = await sb.from('admins').insert({ email, name: $('newAdmName').value.trim() || null, role: $('newAdmRole').value }); if (error) return toast(errMsg(error), true);
-  toast('เพิ่มแล้ว — อย่าลืมสร้างบัญชีใน Supabase Authentication'); pageSet();
+  const email = $('newAdm').value.trim().toLowerCase(), pw = $('newAdmPw').value;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast('อีเมลไม่ถูกต้อง', true);
+  if (pw.length < 6) return toast('รหัสผ่านอย่างน้อย 6 ตัว', true);
+  $('addAdmBtn').disabled = true;
+  try {
+    const ins = await sb.from('admins').upsert({ email, name: $('newAdmName').value.trim() || null, role: $('newAdmRole').value }); if (ins.error) throw ins.error;
+    const existed = await ensureAuthUser(email, pw);
+    if (existed) { const r = await sb.rpc('admin_set_password', { p_email: email, p_password: pw }); if (r.error) throw r.error; }
+    toast('สร้าง Admin แล้ว — ล็อกอินด้วย ' + email); pageSet();
+  } catch (e) { toast(errMsg(e), true); if ($('addAdmBtn')) $('addAdmBtn').disabled = false; }
 }
-async function delAdm(email) { if (!confirm('ลบ ' + email + '?')) return; const { error } = await sb.from('admins').delete().eq('email', email); if (error) return toast(errMsg(error), true); pageSet(); }
+async function delAdm(email) {
+  if (!confirm('ลบ ' + email + '?\nจะลบทั้งสิทธิ์ Admin และบัญชีล็อกอิน')) return;
+  const { error } = await sb.rpc('admin_delete_admin', { p_email: email }); if (error) return toast(errMsg(error), true);
+  toast('ลบแล้ว'); pageSet();
+}
 async function cleanup(manual) {
   const days = +(A.settings.photo_retention_days || 90);
   const { data, error } = await sb.rpc('admin_old_photos', { p_days: days });
@@ -1974,7 +2054,9 @@ document.addEventListener('click', (ev) => { if (document.body.dataset.mode !== 
     xlsx: () => exportXlsx().catch((e) => toast(errMsg(e), true)), print: () => window.print(),
     addReq: addReqModal, saveReq, cancelReq: () => cancelReq(v), addHol, delHol: () => delHol(v),
     editEmp: () => editEmp(v), saveEmp: () => saveEmp(v), resetAcc: () => resetAcc(v), resetDev: () => resetDev(v), import: importModal, doImport,
-    here: useHere, saveSet, saveShifts, addAg, addAdm, delAdm: () => delAdm(v), cleanup: () => cleanup(true)
+    here: useHere, saveSet, saveShifts, addAg, addAdm, delAdm: () => delAdm(v), cleanup: () => cleanup(true),
+    pin: () => pinModal(v), savePin: () => savePin(v), randPin: () => { const p = String(Math.floor(Math.random() * 1e6)).padStart(6, '0'); $('np1').value = p; $('np2').value = p; },
+    admPw: () => pwModal(v, false), myPw: () => pwModal(A.admin.email, true), savePw: () => savePw(v, el.dataset.self === '1')
   };
   if (H[a]) H[a]();
 });
