@@ -439,7 +439,7 @@ const Calc = (() => {
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 
 
 
@@ -1330,7 +1330,7 @@ window.doLogin = doLogin; window.doActivate = doActivate;
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 
 
 
@@ -1519,12 +1519,19 @@ async function fetchRange(from, to) {
   if (a.error) throw a.error; if (r.error) throw r.error;
   return { att: a.data || [], reqs: r.data || [] };
 }
-function empsInRange(from, to) {
-  return A.emps.filter((e) => (!e.start_date || e.start_date <= to) && (e.status === 'Active' || !e.resign_date || e.resign_date > from))
+function empsInRange(from, to, data) {
+  // คนลาออก: แสดงเฉพาะเมื่อมีบันทึกเข้า-ออก หรือใบลา (active) อย่างน้อย 1 รายการในรอบ
+  const has = new Set();
+  if (data) {
+    (data.att || []).forEach((x) => has.add(x.emp_id));
+    (data.reqs || []).forEach((x) => { if (x.status === 'active') has.add(x.emp_id); });
+  }
+  return A.emps.filter((e) => (!e.start_date || e.start_date <= to) &&
+      (e.status === 'Active' || (!e.resign_date || e.resign_date > from) && (!data || has.has(e.emp_id))))
     .filter((e) => !A.agencyFilter || e.agency === A.agencyFilter);
 }
 function computeAll(from, to, data) {
-  return empsInRange(from, to).map((emp) => ({ emp, ...Calc.computeEmployee({ emp, from, to, attendance: data.att, requests: data.reqs, holidays: A.holidays, shifts: A.shifts, settings: A.settings, now: nowMs() }) }));
+  return empsInRange(from, to, data).map((emp) => ({ emp, ...Calc.computeEmployee({ emp, from, to, attendance: data.att, requests: data.reqs, holidays: A.holidays, shifts: A.shifts, settings: A.settings, now: nowMs() }) }));
 }
 function codeClass(d) {
   if (!d) return 'c-none';
