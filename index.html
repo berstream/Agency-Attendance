@@ -439,7 +439,7 @@ const Calc = (() => {
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.2';
 
 
 
@@ -1330,12 +1330,12 @@ window.doLogin = doLogin; window.doActivate = doActivate;
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.2';
 
 
 
 const stale = (tok) => tok !== undefined && tok !== A.nav;
-const A = { nav: 0, page: store.get('aa_admin_page') || 'dash', user: null, admin: null, settings: {}, shifts: {}, shiftList: [], holidays: {}, holidayList: [], emps: [], agencies: [],
+const A = { showResign: store.get('aa_show_resign') === '1', nav: 0, page: store.get('aa_admin_page') || 'dash', user: null, admin: null, settings: {}, shifts: {}, shiftList: [], holidays: {}, holidayList: [], emps: [], agencies: [],
   cycle: null, agencyFilter: '', recFrom: '', recTo: '', recEmp: '', ts: null, offset: 0 };
 
 /* ===== Helpers ===== */
@@ -1520,7 +1520,7 @@ async function fetchRange(from, to) {
   return { att: a.data || [], reqs: r.data || [] };
 }
 function empsInRange(from, to) {
-  return A.emps.filter((e) => (!e.start_date || e.start_date <= to) && (e.status === 'Active' || !e.resign_date || e.resign_date >= from))
+  return A.emps.filter((e) => (!e.start_date || e.start_date <= to) && (e.status === 'Active' || !e.resign_date || e.resign_date > from))
     .filter((e) => !A.agencyFilter || e.agency === A.agencyFilter);
 }
 function computeAll(from, to, data) {
@@ -1789,6 +1789,27 @@ async function exportXlsx() {
   }
   ws2.eachRow((row, i) => row.eachCell((cell) => { cell.font = { ...F, bold: i === 1 }; }));
   [12, 13, 28, 12, 6, 17, 17, 12, 10, 8, 8, 12, 30, 12, 16, 18, 24].forEach((w, i) => { ws2.getColumn(i + 1).width = w; });
+  // ชีตพนักงานที่ลาออก (เก็บประวัติไว้ ไม่ลบ)
+  const ws3 = wb.addWorksheet('Resign Employee', { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws3.addRow(['Emp ID', 'ชื่อ-สกุล', 'Agency', 'แผนก', 'ตำแหน่ง', 'Worker', 'ประเภทสัญญา', 'วันที่เข้างาน', 'วันที่มีผลลาออก', 'อายุงาน', 'อยู่ใน Timesheet รอบนี้', 'วันทำงานในรอบนี้']);
+  const inTs = new Map(rows.map((r) => [r.emp.emp_id, r.sum.worked]));
+  const tenure = (a, b) => {
+    if (!a || !b) return '';
+    let y = +b.slice(0, 4) - +a.slice(0, 4), m = +b.slice(5, 7) - +a.slice(5, 7), dd = +b.slice(8, 10) - +a.slice(8, 10);
+    if (dd < 0) { m -= 1; dd += 30; } if (m < 0) { y -= 1; m += 12; }
+    return `${y} ปี ${m} เดือน ${dd} วัน`;
+  };
+  A.emps.filter((e) => e.status === 'Resign' && (!A.agencyFilter || e.agency === A.agencyFilter))
+    .sort((x, y) => (y.resign_date || '').localeCompare(x.resign_date || ''))
+    .forEach((e) => ws3.addRow([e.emp_id, e.display_name, e.agency || '', e.dept || '', e.position || '', e.worker || '', e.hire_type || '',
+      e.start_date ? fd(e.start_date) : '', e.resign_date ? fd(e.resign_date) : '', tenure(e.start_date, e.resign_date),
+      inTs.has(e.emp_id) ? 'ใช่' : '', inTs.has(e.emp_id) ? inTs.get(e.emp_id) : '']));
+  ws3.eachRow((row, i) => row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.font = { ...F, bold: i === 1, color: i === 1 ? { argb: 'FFFFFFFF' } : undefined };
+    if (i === 1) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF13324F' } }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; }
+    cell.border = { top: { style: 'thin', color: { argb: 'FFD5DCE3' } }, left: { style: 'thin', color: { argb: 'FFD5DCE3' } }, bottom: { style: 'thin', color: { argb: 'FFD5DCE3' } }, right: { style: 'thin', color: { argb: 'FFD5DCE3' } } };
+  }));
+  [13, 28, 12, 14, 14, 8, 16, 14, 16, 20, 20, 16].forEach((w, i) => { ws3.getColumn(i + 1).width = w; });
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -1848,9 +1869,12 @@ async function delHol(d) { if (!confirm('ลบวันหยุด ' + fd(d) +
 async function pageEmp(tok) {
   await loadRef();
   if (stale(tok)) return;
-  const list = A.emps.filter((e) => !A.agencyFilter || e.agency === A.agencyFilter);
-  $('page').innerHTML = `<div class="row between wrap"><h1 class="h1">พนักงาน</h1><div class="row wrap">${agencySelect('empAg', A.agencyFilter)}<button class="btn ghost" data-a="import">นำเข้า CSV</button><button class="btn primary" data-a="editEmp" data-v="">+ เพิ่มพนักงาน</button></div></div>
-    <div class="card" style="font-size:13px;color:var(--ink2);line-height:1.6"><b>ตั้ง PIN</b> = Admin กำหนด PIN 6 หลักให้ แล้วบอกพนักงาน → พนักงานล็อกอินด้วยรหัสพนักงาน + PIN ได้ทันที (ใช้แก้ลืม PIN ได้ด้วย) · หรือให้รหัสเปิดใช้งาน 6 หลัก แล้วพนักงานตั้ง PIN เอง · ลืม PIN = กด “รีเซ็ตบัญชี” ได้รหัสใหม่ · เปลี่ยนมือถือ = “รีเซ็ตเครื่อง”</div>
+  const all = A.emps.filter((e) => !A.agencyFilter || e.agency === A.agencyFilter);
+  const nResign = all.filter((e) => e.status === 'Resign').length;
+  const list = all.filter((e) => A.showResign || e.status === 'Active')
+    .sort((x, y) => (x.status === y.status ? x.emp_id.localeCompare(y.emp_id) : x.status === 'Active' ? -1 : 1));
+  $('page').innerHTML = `<div class="row between wrap"><h1 class="h1">พนักงาน <span class="sub" style="font-size:15px;font-weight:500">Active ${all.length - nResign} คน</span></h1><div class="row wrap"><label class="row" style="gap:6px;font-size:14px;cursor:pointer"><input type="checkbox" id="showResign" ${A.showResign ? 'checked' : ''}> แสดงคนที่ลาออก (${nResign})</label>${agencySelect('empAg', A.agencyFilter)}<button class="btn ghost" data-a="import">นำเข้า CSV</button><button class="btn primary" data-a="editEmp" data-v="">+ เพิ่มพนักงาน</button></div></div>
+    <div class="card" style="font-size:13px;color:var(--ink2);line-height:1.6"><b>ตั้ง PIN</b> = กำหนด PIN ให้พนักงาน (แก้ลืม PIN ด้วย) · <b>รีเซ็ตเครื่อง</b> = เปลี่ยนมือถือ · <b>รีเซ็ตบัญชี</b> = เริ่มบัญชีใหม่ทั้งหมด</div>
     <section class="card" style="padding:0"><div class="scroll"><table class="tbl" style="min-width:900px"><thead><tr><th>รหัส</th><th>ชื่อ-สกุล</th><th>Agency</th><th>เริ่มงาน</th><th>สถานะ</th><th>บัญชีแอป</th><th>เบี้ยพิเศษ/วัน</th><th></th></tr></thead><tbody>
     ${list.map((e) => `<tr style="${e.status === 'Resign' ? 'opacity:.55' : ''}"><td><b>${esc(e.emp_id)}</b></td><td>${esc(e.display_name)}</td><td>${esc(e.agency || '')}</td><td>${e.start_date ? fd(e.start_date) : ''}</td>
       <td>${e.status === 'Active' ? '<span class="chip ok">Active</span>' : `<span class="chip gray">Resign ${e.resign_date ? fd(e.resign_date) : ''}</span>`}</td>
@@ -2065,6 +2089,7 @@ document.addEventListener('change', (ev) => { if (document.body.dataset.mode !==
   if (id === 'mselect') go(ev.target.value);
   if (id === 'tsAg') { A.agencyFilter = ev.target.value; if (A.ts) { A.ts.rows = computeAll(A.ts.cycle.from, A.ts.cycle.to, A.ts.data); paintTs(); } }
   if (id === 'empAg') { A.agencyFilter = ev.target.value; pageEmp(); }
+  if (id === 'showResign') { A.showResign = ev.target.checked; store.set('aa_show_resign', A.showResign ? '1' : ''); pageEmp(); }
 });
 document.addEventListener('keydown', (ev) => { if (document.body.dataset.mode !== 'adm') return; if (ev.key === 'Escape' && $('amodal').innerHTML) closeModal(); });
 
