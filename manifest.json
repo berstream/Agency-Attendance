@@ -1,7 +1,7 @@
 {
   "name": "Agency Attendance · WFDC",
   "short_name": "ลงเวลา Agency",
-  "start_url": "app.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
