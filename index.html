@@ -81,6 +81,26 @@ body.m-emp .toast.err{background:var(--red)}
 body.m-emp .spinner{width:22px;height:22px;border-radius:50%;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;animation:spin .8s linear infinite}
 body.m-emp .spinner.dark{border-color:rgba(19,50,79,.2);border-top-color:var(--navy)}
 @keyframes spin{to{transform:rotate(360deg)}}
+body.m-emp .sk{background:linear-gradient(90deg,#E7ECF2 0%,#F5F7FA 40%,#E7ECF2 80%);background-size:300% 100%;animation:shimmer 1.3s linear infinite;border-radius:8px}
+@keyframes shimmer{from{background-position:100% 0}to{background-position:-200% 0}}
+@keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+body.m-emp .slide-l{animation:sl .32s cubic-bezier(.2,.8,.2,1) both}
+body.m-emp .slide-r{animation:sr .32s cubic-bezier(.2,.8,.2,1) both}
+@keyframes sl{from{opacity:0;transform:translateX(36px)}to{opacity:1;transform:none}}
+@keyframes sr{from{opacity:0;transform:translateX(-36px)}to{opacity:1;transform:none}}
+body.m-emp .pdot{width:9px;height:9px;border-radius:50%;background:currentColor;position:relative;flex:none;display:inline-block}
+body.m-emp .pdot::before,body.m-emp .pdot::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid currentColor;animation:ping 1.6s ease-out infinite}
+body.m-emp .pdot::after{animation-delay:.8s}
+@keyframes ping{from{transform:scale(1);opacity:.8}to{transform:scale(2.8);opacity:0}}
+body.m-emp .camflash{position:fixed;inset:0;background:#fff;z-index:300;pointer-events:none;animation:flash .45s ease-out forwards}
+@keyframes flash{from{opacity:.95}to{opacity:0}}
+body.m-emp .okcheck{width:64px;height:64px;flex:none}
+body.m-emp .okcheck circle{fill:#E3F4EC;stroke:#0B8457;stroke-width:5;stroke-dasharray:283;stroke-dashoffset:283;animation:draw .55s ease-out forwards}
+body.m-emp .okcheck path{fill:none;stroke:#0B8457;stroke-width:8;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:60;stroke-dashoffset:60;animation:draw .35s ease-out .45s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+body.m-emp .pop{animation:pop .5s cubic-bezier(.3,1.5,.5,1) both}
+@keyframes pop{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){*,body.m-emp *::before,body.m-emp *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 body.m-emp .lang{display:flex;gap:6px}
 body.m-emp .lang button{height:34px;padding:0 12px;border-radius:17px;border:1px solid #4A6681;background:transparent;color:#fff;font-size:13px}
 body.m-emp .lang button.on{background:#fff;color:var(--navy);border-color:#fff;font-weight:600}
@@ -241,6 +261,16 @@ body.m-adm .toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-
 body.m-adm .toast.err{background:var(--red)}
 body.m-adm .spinner{width:22px;height:22px;border-radius:50%;border:3px solid rgba(19,50,79,.2);border-top-color:var(--navy);animation:spin .8s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
+body.m-adm .sk{background:linear-gradient(90deg,#E7ECF2 0%,#F5F7FA 40%,#E7ECF2 80%);background-size:300% 100%;animation:shimmer 1.3s linear infinite;border-radius:8px}
+@keyframes shimmer{from{background-position:100% 0}to{background-position:-200% 0}}
+@keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+body.m-adm .otc .bar > div{transform-origin:left center;animation:grow .9s cubic-bezier(.2,.8,.2,1) .2s both}
+body.m-adm .topload{position:fixed;left:0;top:0;height:3px;width:0;background:#D7262E;z-index:200;opacity:0;box-shadow:0 0 8px rgba(215,38,46,.55);pointer-events:none}
+body.m-adm .topload.run{opacity:1;animation:barrun 1.8s cubic-bezier(.1,.7,.3,1) forwards}
+body.m-adm .topload.done{opacity:0;width:100%;transition:width .2s ease,opacity .3s ease .2s}
+@keyframes barrun{from{width:0}to{width:85%}}
+@media (prefers-reduced-motion: reduce){*,body.m-adm *::before,body.m-adm *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 body.m-adm .login{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--navy);padding:16px}
 body.m-adm .dot{width:8px;height:8px;border-radius:4px;flex:none;margin-top:7px}
 @media print{@page{size:A4 landscape;margin:8mm}
@@ -439,7 +469,7 @@ const Calc = (() => {
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.4.3';
+const APP_VERSION = '1.5.0';
 
 
 
@@ -725,7 +755,7 @@ async function afterLogin() {
     S.me = me.data; S.settings = st.data ? st.data.data : {};
     S.shiftList = sh.data || []; S.shifts = {}; for (const x of S.shiftList) S.shifts[x.code] = x;
     S.holidays = {}; for (const h of (ho.data || [])) S.holidays[h.hdate] = h.name;
-    S.view = 'app'; S.tab = 'time';
+    S.view = 'app'; S.tab = 'time'; S.anim = 'enter';
     startGps(); startClock();
     await loadRecent();
     render();
@@ -799,6 +829,14 @@ function render() {
   if (S.view === 'login') { root.innerHTML = viewLogin(); updateRole(); return; }
   if (S.view === 'activate') { root.innerHTML = viewActivate(); return; }
   root.innerHTML = viewShell();
+  if (S.anim) {
+    const m = root.querySelector('main.main');
+    if (m && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (S.anim === 'enter') [...m.children].forEach((el, i) => { el.style.animation = `up .45s cubic-bezier(.2,.8,.2,1) ${Math.min(i, 8) * 0.06}s both`; });
+      else m.classList.add(S.anim);
+    }
+    S.anim = null;
+  }
   if (S.tab === 'my') loadMyTime(false);
   if (S.tab === 'leave') loadMyReqs();
 }
@@ -858,12 +896,12 @@ function viewShell() {
 function geoCard() {
   const g = S.gps, site = (S.settings && S.settings.site) || {};
   let chip = '', line1 = '', line2 = '', color = '#8795A3', fill = '#EEF1F4';
-  if (g.state === 'in') { chip = `<span class="chip ok">● ${esc(t('inArea'))}</span>`; color = '#0B8457'; fill = '#E3F4EC'; }
+  if (g.state === 'in') { chip = `<span class="chip ok"><span class="pdot"></span>${esc(t('inArea'))}</span>`; color = '#0B8457'; fill = '#E3F4EC'; }
   else if (g.state === 'out') { chip = `<span class="chip bad">● ${esc(t('outArea'))}</span>`; color = '#C0262D'; fill = '#FDE8E8'; }
   else if (g.state === 'weak') { chip = `<span class="chip warn">● ${esc(t('gpsWeak'))}</span>`; color = '#B54708'; fill = '#FEF0E1'; }
   else if (g.state === 'off') chip = `<span class="chip bad">${esc(t('gpsOff'))}</span>`;
   else if (g.state === 'nosite') chip = `<span class="chip warn">${esc(L().errors.SITE_NOT_SET)}</span>`;
-  else chip = `<span class="chip gray"><span class="spinner dark" style="width:12px;height:12px;border-width:2px"></span>${esc(t('gpsWait'))}</span>`;
+  else chip = `<span class="chip gray"><span class="pdot"></span>${esc(t('gpsWait'))}</span>`;
   if (g.dist != null) line1 = `${esc(t('distFrom'))} ${fmtDist(g.dist)} · ${esc(t('radius'))} ${Math.round(g.radius)} ${esc(t('m'))}`;
   if (g.acc != null) line2 = `${esc(t('gpsAcc'))} ±${Math.round(g.acc)} ${esc(t('m'))}`;
   const dx = g.dist != null ? Math.max(-30, Math.min(30, (g.dist / Math.max(1, g.radius)) * 34)) : 0;
@@ -1044,6 +1082,7 @@ async function compress(cv) {
 async function shoot() {
   if (!canShoot()) return;
   S.busy = true; renderCamStatus();
+  { const f = document.createElement('div'); f.className = 'camflash'; document.body.appendChild(f); setTimeout(() => f.remove(), 500); }
   const sh = $('shutter'); if (sh) { sh.disabled = true; sh.innerHTML = '<span class="spinner" style="width:40px;height:40px"></span>'; }
   let path = null;
   try {
@@ -1082,10 +1121,10 @@ function viewDone() {
   if (!isIn && row.early_reason) status = `<span style="color:var(--orange);font-weight:600">${esc(t('r' + row.early_reason))}${row.early_boss ? ' · ' + esc(row.early_boss) : ''}</span>`;
   if (isIn && row.pre_ot) status += ` · <span style="color:var(--amber-ink);font-weight:600">${esc(t('preOt'))}</span>`;
   return `<div class="cam" style="background:var(--bg);color:var(--ink)"><div class="cam-in" style="gap:16px">
-    <div class="row" style="gap:14px"><div class="iconbtn" style="width:52px;height:52px;border-radius:26px;background:var(--green)">${ICON.check}</div>
-      <div class="col"><div style="font-size:22px;font-weight:700">${esc(isIn ? t('successIn') : t('successOut'))}</div><div style="font-size:15px;color:var(--ink2)">${Calc.bkkTime(at)}${sh ? ' · ' + esc(sh.name) : ''}${status ? ' · ' + status : ''}</div></div></div>
-    <img src="${d.url}" alt="" style="width:100%;border-radius:20px;background:#2C4255">
-    <div class="card col" style="padding:4px 16px">
+    <div class="row" style="gap:14px"><svg class="okcheck" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="45"></circle><path d="M30 52 L45 66 L71 38"></path></svg>
+      <div class="col pop" style="animation-delay:.45s"><div style="font-size:22px;font-weight:700">${esc(isIn ? t('successIn') : t('successOut'))}</div><div style="font-size:15px;color:var(--ink2)">${Calc.bkkTime(at)}${sh ? ' · ' + esc(sh.name) : ''}${status ? ' · ' + status : ''}</div></div></div>
+    <img src="${d.url}" alt="" class="pop" style="width:100%;border-radius:20px;background:#2C4255;animation-delay:.6s">
+    <div class="card col pop" style="padding:4px 16px;animation-delay:.7s">
       <div class="row" style="justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4;font-size:14px"><span class="sub">${esc(t('recorded'))}</span><span style="font-weight:600" class="num">${esc(t('serverTime'))} ${new Date(at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour12: false })}</span></div>
       ${sh ? `<div class="row" style="justify-content:space-between;padding:10px 0;font-size:14px"><span class="sub">${esc(t('shiftEnd'))}</span><span style="font-weight:600">${esc(sh.end_time)}</span></div>` : ''}
     </div>
@@ -1181,7 +1220,7 @@ async function loadMyTime(force) {
     sb.from('requests').select('*').eq('emp_id', S.me.emp_id).lte('date_from', S.cycle.to).gte('date_to', S.cycle.from)
   ]);
   const res = Calc.computeEmployee({ emp: S.me, from: S.cycle.from, to: S.cycle.to, attendance: a.data || [], requests: r.data || [], holidays: S.holidays, shifts: S.shifts, settings: S.settings, now: nowMs() });
-  S.mt = Object.assign({ key }, res);
+  S.mt = Object.assign({ key }, res); S.mtAnim = true;
   if (!S.mtSel || S.mtSel < S.cycle.from || S.mtSel > S.cycle.to) {
     const td = todayStr(); S.mtSel = td >= S.cycle.from && td <= S.cycle.to ? td : S.cycle.to;
   }
@@ -1195,9 +1234,31 @@ function viewMyTime() {
         <button class="iconbtn" style="background:#fff;border:1px solid var(--line2);width:38px;height:38px;color:var(--navy)" data-a="cyc" data-v="1" aria-label="next">${ICON.next}</button></div>
     </div>
     <div class="seg" style="max-width:420px"><button data-a="mtView" data-v="list" class="${S.mtView === 'list' ? 'on' : ''}">${esc(t('list'))}</button><button data-a="mtView" data-v="cal" class="${S.mtView === 'cal' ? 'on' : ''}">${esc(t('calendar'))}</button></div>
-    <div id="mtBody"><div class="card" style="text-align:center"><span class="spinner dark"></span></div></div>`;
+    <div id="mtBody">${mtSkel()}</div>`;
+}
+function mtSkel() {
+  const line = (w, h, x) => `<div class="sk" style="width:${w};height:${h}px;${x || ''}"></div>`;
+  const tile = `<div class="card col" style="gap:8px">${line('60%', 12)}${line('40%', 26)}</div>`;
+  const row = `<div class="card row" style="gap:12px;padding:12px 14px">${line('40px', 36, 'flex:none')}${line('34px', 26, 'flex:none;border-radius:8px')}<div class="col" style="flex:1;gap:6px">${line('55%', 14)}${line('30%', 10)}</div></div>`;
+  return `<div class="col" style="gap:14px"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${tile.repeat(4)}</div><div class="col" style="gap:8px">${row.repeat(5)}</div></div>`;
 }
 function paintMyTime() {
+  paintMyTime0();
+  if (!S.mtAnim) return; S.mtAnim = false;
+  const body = $('mtBody'); if (!body || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const tiles = [...body.querySelectorAll('.card.col')].slice(0, 4);
+  tiles.forEach((el, i) => { el.style.animation = `up .45s cubic-bezier(.2,.8,.2,1) ${i * 0.05}s both`; });
+  [...body.querySelectorAll('.dayrow')].slice(0, 12).forEach((el, i) => { el.style.animation = `up .4s cubic-bezier(.2,.8,.2,1) ${0.15 + i * 0.04}s both`; });
+  [...body.querySelectorAll('.cal .cell')].forEach((el, i) => { el.style.animation = `up .35s cubic-bezier(.2,.8,.2,1) ${0.05 + i * 0.012}s both`; });
+  tiles.forEach((el) => {
+    const n = el.children[1]; const node = n && [...n.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
+    if (!node) return; const raw = node.textContent.trim(); if (!/^\d+(\.\d+)?$/.test(raw) || !+raw) return;
+    const end = +raw, dec = (raw.split('.')[1] || '').length, tail = node.textContent.endsWith(' ') ? ' ' : '', t0 = performance.now();
+    const step = (tm) => { const k = Math.min(1, (tm - t0) / 700); node.textContent = (end * (1 - Math.pow(1 - k, 3))).toFixed(dec) + tail; if (k < 1 && node.isConnected) requestAnimationFrame(step); };
+    node.textContent = (0).toFixed(dec) + tail; requestAnimationFrame(step);
+  });
+}
+function paintMyTime0() {
   const body = $('mtBody'); if (!body || !S.mt) return;
   const lbl = $('cycLbl'); if (lbl) lbl.textContent = `${t('cycle')} ${fmtDate(S.cycle.from)} – ${fmtDate(S.cycle.to)}`;
   const s = S.mt.sum;
@@ -1289,7 +1350,7 @@ document.addEventListener('click', (ev) => { if (document.body.dataset.mode !== 
   if (a === 'lang') { S.lang = v; store.set('aa_lang', v); if (S.view === 'app' && S.cam) { render(); attachStream(S.cam.stream); renderCamStatus(); } else render(); }
   else if (a === 'goActivate') { S.view = 'activate'; render(); }
   else if (a === 'goLogin') { S.view = 'login'; render(); }
-  else if (a === 'tab') { S.tab = v; render(); }
+  else if (a === 'tab') { const order = ['time', 'leave', 'my']; if (v !== S.tab) S.anim = order.indexOf(v) > order.indexOf(S.tab) ? 'slide-l' : 'slide-r'; S.tab = v; render(); }
   else if (a === 'logout') logout();
   else if (a === 'cam') openCam(v);
   else if (a === 'camClose') { stopCam(); render(); }
@@ -1303,7 +1364,7 @@ document.addEventListener('click', (ev) => { if (document.body.dataset.mode !== 
   else if (a === 'sendLeave') sendLeave();
   else if (a === 'cancelReq') cancelReq(v);
   else if (a === 'mtView') { S.mtView = v; document.querySelectorAll('[data-a="mtView"]').forEach((b) => b.classList.toggle('on', b.dataset.v === v)); paintMyTime(); }
-  else if (a === 'cyc') { S.cycle = Calc.shiftCycle(S.cycle, +v, +(S.settings.cycle_start_day || 26)); S.mt = null; $('mtBody').innerHTML = '<div class="card" style="text-align:center"><span class="spinner dark"></span></div>'; loadMyTime(true); }
+  else if (a === 'cyc') { S.cycle = Calc.shiftCycle(S.cycle, +v, +(S.settings.cycle_start_day || 26)); S.mt = null; $('mtBody').innerHTML = mtSkel(); loadMyTime(true); }
   else if (a === 'mtPick') { S.mtSel = v; paintMyTime(); const det = $('detail'); if (det && window.innerWidth < 900) det.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
   else if (a === 'fix') sendFix(v);
 });
@@ -1330,7 +1391,7 @@ window.doLogin = doLogin; window.doActivate = doActivate;
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.4.3';
+const APP_VERSION = '1.5.0';
 
 
 
@@ -1500,14 +1561,62 @@ function renderShell() {
     <main class="content" id="page"></main>
     <nav class="mnav">${PAGES.filter(([k]) => ['dash', 'rec', 'ts', 'emp'].includes(k)).map(([k, l, ic]) => `<button data-a="go" data-v="${k}" id="mnav-${k}">${ic}${l.split(' ')[0]}</button>`).join('')}</nav></div>`;
 }
+/* ===== Motion: skeleton · แถบโหลด · การ์ดเลื่อนขึ้น · ตัวเลขวิ่ง ===== */
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function skel(kind) {
+  const line = (w, h, extra) => `<div class="sk" style="width:${w};height:${h}px;${extra || ''}"></div>`;
+  const kpi = `<div class="kpi">${line('55%', 12)}${line('35%', 28, 'margin-top:8px')}</div>`;
+  const row = `<div class="row" style="padding:12px 0;border-bottom:1px solid #EEF1F4">${line('34px', 34, 'border-radius:50%;flex:none')}<div class="col" style="flex:1;gap:6px">${line('40%', 13)}${line('22%', 10)}</div>${line('72px', 22, 'border-radius:12px')}</div>`;
+  const rows = (n) => `<section class="card" style="padding:4px 20px">${row.repeat(n)}</section>`;
+  if (kind === 'rows') return `<div style="padding:4px 20px">${row.repeat(6)}</div>`;
+  if (kind === 'ts') return `<div class="kpis" style="margin-bottom:16px">${kpi.repeat(7)}</div><section class="card" style="padding:12px 20px">${(`<div class="row" style="gap:6px;padding:8px 0">${line('180px', 14, 'flex:none')}${line('100%', 22, 'flex:1').repeat(10)}</div>`).repeat(6)}</section>`;
+  return `<div class="col" style="gap:16px">${line('240px', 26)}<div class="kpis">${kpi.repeat(4)}</div>${rows(5)}</div>`;
+}
+function topLoad(on) {
+  let b = document.getElementById('topload');
+  if (!b) { b = document.createElement('div'); b.id = 'topload'; b.className = 'topload'; document.body.appendChild(b); }
+  if (on) { b.style.width = ''; b.className = 'topload'; void b.offsetWidth; b.className = 'topload run'; return; }
+  const w = getComputedStyle(b).width; b.className = 'topload'; b.style.width = w; void b.offsetWidth; b.className = 'topload done';
+  setTimeout(() => { if (b.className === 'topload done') { b.className = 'topload'; b.style.width = ''; } }, 650);
+}
+function countUp(root) {
+  if (!root || reduceMotion()) return;
+  root.querySelectorAll('.kpi b, .otc b.num').forEach((el) => {
+    const node = [...el.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+    if (!node) return;
+    const raw = node.textContent.trim();
+    if (!/^-?[\d,]+(\.\d+)?$/.test(raw)) return;
+    const end = +raw.replace(/,/g, ''); if (!end) return;
+    const dec = (raw.split('.')[1] || '').length, comma = raw.includes(',') || dec === 2;
+    const fmt = (v) => comma ? v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : (dec ? v.toFixed(dec) : String(Math.round(v)));
+    const tail = node.textContent.endsWith(' ') ? ' ' : '';
+    const t0 = performance.now(), dur = 750;
+    const step = (t) => { const k = Math.min(1, (t - t0) / dur); node.textContent = fmt(end * (1 - Math.pow(1 - k, 3))) + tail; if (k < 1 && node.isConnected) requestAnimationFrame(step); };
+    node.textContent = fmt(0) + tail; requestAnimationFrame(step);
+  });
+}
+function animIn(root, rowsOnly) {
+  if (!root || reduceMotion()) return;
+  const set = new Set();
+  if (!rowsOnly) [...root.children].forEach((e) => set.add(e));
+  root.querySelectorAll('.kpis > *, .otc').forEach((e) => set.add(e));
+  [...root.querySelectorAll('tbody > tr')].slice(0, 14).forEach((e) => set.add(e));
+  let i = 0;
+  for (const el of set) { el.style.animation = `up .45s cubic-bezier(.2,.8,.2,1) ${Math.min(i++, 14) * 0.04}s both`; }
+  countUp(root);
+}
 function go(p) {
   A.page = p; store.set('aa_admin_page', p);
   document.querySelectorAll('.side button[data-a="go"], .mnav button').forEach((b) => b.classList.toggle('on', b.dataset.v === p));
   const ms = $('mselect'); if (ms) ms.value = p;
   const mt = $('mtitle'); if (mt) mt.textContent = (PAGES.find((x) => x[0] === p) || [])[1] || '';
-  $('page').innerHTML = '<div class="card" style="text-align:center"><span class="spinner"></span></div>';
+  $('page').innerHTML = skel(p === 'ts' ? 'tsPage' : 'page');
   const tok = ++A.nav;
-  ({ dash: pageDash, rec: pageRec, ts: pageTs, leave: pageLeave, emp: pageEmp, set: pageSet }[p] || pageDash)(tok).catch((e) => { if (tok === A.nav && $('page')) $('page').innerHTML = `<div class="card">${esc(errMsg(e))}</div>`; });
+  topLoad(true);
+  ({ dash: pageDash, rec: pageRec, ts: pageTs, leave: pageLeave, emp: pageEmp, set: pageSet }[p] || pageDash)(tok)
+    .then(() => { if (tok === A.nav) animIn($('page')); })
+    .catch((e) => { if (tok === A.nav && $('page')) $('page').innerHTML = `<div class="card">${esc(errMsg(e))}</div>`; })
+    .finally(() => { if (tok === A.nav) topLoad(false); });
 }
 
 /* ===== Data helpers ===== */
@@ -1644,7 +1753,7 @@ async function pageRec(tok) {
   $('page').innerHTML = `<div class="row between wrap"><h1 class="h1">บันทึกเข้า-ออก + รูป</h1><button class="btn primary" data-a="editAtt" data-v="">+ เพิ่มรายการ (Admin)</button></div>
     <div class="card row wrap noprint" style="gap:10px"><label class="field">ตั้งแต่<input class="input" type="date" id="rf" value="${A.recFrom}"></label><label class="field">ถึง<input class="input" type="date" id="rt" value="${A.recTo}"></label>
       <label class="field" style="flex:1;min-width:220px">พนักงาน${empSelect('re', A.recEmp)}</label><button class="btn navy" data-a="recLoad" style="align-self:flex-end">แสดง</button></div>
-    <section class="card" style="padding:0" id="recBody"><div style="padding:20px;text-align:center"><span class="spinner"></span></div></section>`;
+    <section class="card" style="padding:0" id="recBody">${skel('rows')}</section>`;
   await loadRec();
 }
 async function loadRec() {
@@ -1664,6 +1773,7 @@ async function loadRec() {
     </tbody></table></div>`;
   A._rec = data || [];
   fillThumbs($('recBody'));
+  animIn($('recBody'), true);
 }
 async function editAtt(id) {
   let a = null;
@@ -1704,7 +1814,7 @@ async function pageTs(tok) {
   $('page').innerHTML = `<div class="row between wrap"><div class="col"><h1 class="h1">Timesheet รอบ ${fd(c.from)} – ${fd(c.to)}</h1><span class="sub">${esc((A.settings.site || {}).name || '')} · คิดจากบันทึกเข้า-ออก + ใบลา + ปฏิทิน PH</span></div>
       <div class="row wrap noprint"><button class="btn ghost" data-a="cyc" data-v="-1">‹ รอบก่อน</button><button class="btn ghost" data-a="cyc" data-v="1">รอบถัดไป ›</button>${agencySelect('tsAg', A.agencyFilter)}
       <button class="btn primary" data-a="xlsx">Export Excel</button><button class="btn navy" data-a="print">PDF / พิมพ์</button></div></div>
-    <div id="tsBody"><div class="card" style="text-align:center"><span class="spinner"></span></div></div>`;
+    <div id="tsBody">${skel('ts')}</div>`;
   const data = await fetchRange(c.from, c.to);
   if (stale(tok) || !$('tsBody')) return;
   A.ts = { cycle: c, data, rows: computeAll(c.from, c.to, data) };
@@ -2080,7 +2190,7 @@ document.addEventListener('click', (ev) => { if (document.body.dataset.mode !== 
   if (a === 'modalBg') { if (ev.target === el) closeModal(); return; }
   const H = {
     go: () => go(v), logout, close: closeModal, photo: () => showPhoto(v), editAtt: () => editAtt(v), saveAtt: () => saveAtt(v, el.dataset.emp), delAtt: () => delAtt(v),
-    recLoad: () => { A.recFrom = $('rf').value; A.recTo = $('rt').value; A.recEmp = $('re').value; loadRec(); },
+    recLoad: () => { A.recFrom = $('rf').value; A.recTo = $('rt').value; A.recEmp = $('re').value; $('recBody').innerHTML = skel('rows'); topLoad(true); loadRec().catch((e) => toast(errMsg(e), true)).finally(() => topLoad(false)); },
     cyc: () => { A.cycle = Calc.shiftCycle(A.cycle, +v, +(A.settings.cycle_start_day || 26)); go(A.page); },
     xlsx: () => exportXlsx().catch((e) => toast(errMsg(e), true)), print: () => window.print(),
     addReq: addReqModal, saveReq, cancelReq: () => cancelReq(v), addHol, delHol: () => delHol(v),
