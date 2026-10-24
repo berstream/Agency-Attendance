@@ -190,6 +190,12 @@ body.m-adm .side button{display:flex;align-items:center;gap:10px;height:42px;pad
 body.m-adm .side button.on{background:var(--navy2);color:#fff;font-weight:600}
 body.m-adm .content{flex:999 1 560px;min-width:0;padding:26px 30px 90px;display:flex;flex-direction:column;gap:18px}
 body.m-adm .mtop{display:none}
+body.m-adm .acct-btn{width:40px;height:40px;border-radius:50%;border:2px solid #fff;background:#1F4A70;color:#fff;font-weight:700;font-size:16px;flex:none}
+body.m-adm .acct-ov{position:fixed;inset:0;background:rgba(10,25,40,.45);z-index:60;animation:fadein .15s ease both}
+body.m-adm .acct-pop{position:fixed;top:74px;right:12px;width:min(300px,calc(100vw - 24px));background:#fff;border-radius:16px;box-shadow:0 12px 36px rgba(0,0,0,.25);z-index:61;overflow:hidden;transform-origin:top right;animation:acctin .18s cubic-bezier(.2,.8,.2,1) both}
+body.m-adm .acct-pop .ar{display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;font-size:15px;font-weight:600;border:none;border-top:1px solid #EEF1F4;background:#fff;text-align:left;color:var(--ink)}
+@keyframes acctin{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
 body.m-adm .mnav{display:none}
 @media (max-width:860px){body.m-adm .side{display:none}
 body.m-adm .mtop{display:flex;align-items:center;justify-content:space-between;background:var(--navy);color:#fff;padding:16px 18px;width:100%}
@@ -349,10 +355,12 @@ const Calc = (() => {
    * คิดทั้งรอบของพนักงาน 1 คน
    * opts: {emp, from, to, attendance[], requests[], holidays{date:name}, shifts{code:row}, settings, now}
    */
+  // พัก OT ตาม พ.ร.บ.คุ้มครองแรงงาน ม.27 วรรคสี่: OT ที่ปัดแล้วเกิน 2 ชม. หัก 30 นาที (ค่าตายตัว)
+  const OT_BREAK_AFTER = 120, OT_BREAK_MIN = 30;
   function computeEmployee(o) {
     const s = o.settings || {};
     const grace = +(s.grace_minutes ?? 5);
-    const otMin = +(s.ot_min_minutes ?? 30);
+    const otMin = +(s.ot_min_minutes ?? 60);
     const otStep = Math.max(1, +(s.ot_step_minutes ?? 30));
     const missH = +(s.missing_after_hours ?? 4);
     const hHours = +(s.holiday_hours ?? 8);
@@ -364,7 +372,7 @@ const Calc = (() => {
     for (const a of o.attendance) if (a.emp_id === emp.emp_id) (byDate[a.work_date] = byDate[a.work_date] || []).push(a);
     const reqs = o.requests.filter((r) => r.emp_id === emp.emp_id);
     const days = [];
-    const sum = { worked: 0, ot1: 0, ot15: 0, ot2: 0, ot3: 0, fee: 0, extra: 0, phDays: 0, late: 0, lateMin: 0, missing: 0, AB: 0, H: 0, PL: 0, SL: 0, WOP: 0, holidayWork: 0, preOt: 0, earlyCount: 0, earlyH: 0, slH: 0, plH: 0, bossH: 0 };
+    const sum = { worked: 0, ot1: 0, ot15: 0, ot2: 0, ot3: 0, fee: 0, extra: 0, phDays: 0, late: 0, lateMin: 0, missing: 0, AB: 0, H: 0, PL: 0, SL: 0, WOP: 0, holidayWork: 0, preOt: 0, otBreak: 0, earlyCount: 0, earlyH: 0, slH: 0, plH: 0, bossH: 0 };
 
     for (let date = o.from; date <= o.to; date = addDays(date, 1)) {
       const hol = o.holidays[date] || null;
@@ -373,7 +381,7 @@ const Calc = (() => {
       const a = list[0] || null;
       const day = { date, dow: dow(date), code: '', kind: 'none', holiday: hol, request: req, att: a, extraAtt: list.slice(1),
         shift: null, inAt: a ? a.in_at : null, outAt: a ? a.out_at : null,
-        late: 0, early: 0, ot1: 0, ot15: 0, ot2: 0, ot3: 0, fee: 0, worked: 0, extra: 0, ph: false, notes: [] };
+        late: 0, early: 0, ot1: 0, ot15: 0, ot2: 0, ot3: 0, fee: 0, worked: 0, extra: 0, ph: false, otBreak: 0, notes: [] };
       const beforeStart = emp.start_date && date < emp.start_date;
       const resigned = emp.status === 'Resign' && emp.resign_date && date >= emp.resign_date;
 
@@ -387,11 +395,17 @@ const Calc = (() => {
         const lateMin = Math.floor((ms(a.in_at) - win.start) / 60e3);
         if (lateMin > grace) { day.late = lateMin; sum.late++; sum.lateMin += lateMin; day.notes.push('late'); }
         if (a.out_at) {
-          const extra = ms(a.out_at) - win.end;
-          const otm = extra >= otMin * 60e3 ? Math.floor(extra / (otStep * 60e3)) * otStep : 0;
+          // OT แต่ละช่วง (ก่อนกะ / หลังกะ): ปัดลงทีละ step ก่อน → ไม่ถึงขั้นต่ำ = 0 → ปัดแล้วเกิน 2 ชม. หักพัก 30 นาที (ม.27)
+          const otPart = (gapMs) => {
+            const r = Math.floor(Math.floor(gapMs / 60e3) / otStep) * otStep;
+            if (r <= 0 || r < otMin) return [0, 0];
+            const brk = r > OT_BREAK_AFTER ? OT_BREAK_MIN : 0;
+            return [r - brk, brk];
+          };
+          const [otm, brkPost] = otPart(ms(a.out_at) - win.end);
           // OT ก่อนเข้ากะ: มาก่อนเวลาเข้ากะ ≥ OT ขั้นต่ำ (นับเมื่อมีเวลาออกแล้ว)
-          const pre = win.start - ms(a.in_at);
-          const prem = pre >= otMin * 60e3 ? Math.floor(pre / (otStep * 60e3)) * otStep : 0;
+          const [prem, brkPre] = otPart(win.start - ms(a.in_at));
+          day.otBreak = brkPost + brkPre; sum.otBreak += day.otBreak;
           day.preOt = prem / 60; day.preOtUnflagged = prem > 0 && !a.pre_ot;
           if (type === 'N') day.ot15 = (otm + prem) / 60; else day.ot3 = (otm + prem) / 60;
           if (ms(a.out_at) < win.end) {
@@ -469,7 +483,7 @@ const Calc = (() => {
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.4';
 
 
 
@@ -498,7 +512,7 @@ const I18N = {
     reportPh: 'เช่น ออกงาน 05:00 ลืมกด', reportSent: 'แจ้ง Admin แล้ว รอแก้ไข', legOk: 'ครบเข้า-ออก', legMiss: 'ขาดเวลา', legLate: 'สาย', legHol: 'ทำงานวันหยุด', legOff: 'หยุด / PH', legLeave: 'ลา',
     logout: 'ออกจากระบบ', confirmLogout: 'ออกจากระบบ?', earlyOut: 'ออกก่อน {n} นาที', otLine: 'OT {r}× {h} ชม.',
     preOt: 'มาทำ OT ก่อนเข้ากะ', preOtHint: 'นับ OT จากเวลาเข้างานจริงถึงเวลาเข้ากะ', earlyTitle: 'ออกก่อนเวลาเลิกกะ ({t}) — เลือกเหตุผล', rSL: 'ป่วย (ลาป่วย)', rPL: 'ธุระส่วนตัว (ลากิจ)', rBOSS: 'หัวหน้าให้กลับ / งานหมด',
-    bossName: 'ชื่อหัวหน้างาน *', noteOpt: 'หมายเหตุ (ถ้ามี)', earlyCut: 'ลาป่วย / ลากิจระหว่างวัน จะถูกตัดเบี้ยขยัน', earlyLine: 'ออกก่อน {h} ชม. · {r}', preOtLine: 'OT ก่อนเข้ากะ {h} ชม.', preOtUnflag: 'ไม่ได้แจ้ง OT',
+    bossName: 'ชื่อหัวหน้างาน *', noteOpt: 'หมายเหตุ (ถ้ามี)', earlyCut: 'ลาป่วย / ลากิจระหว่างวัน จะถูกตัดเบี้ยขยัน', earlyLine: 'ออกก่อน {h} ชม. · {r}', otBreakLine: 'หักพัก OT {m} นาที (ทำ OT ต่อเนื่อง ≥ 2 ชม.)', preOtLine: 'OT ก่อนเข้ากะ {h} ชม.', preOtUnflag: 'ไม่ได้แจ้ง OT',
     H: 'วันหยุด', PL: 'ลากิจ', SL: 'ลาป่วย', WOP: 'ลาไม่รับค่าจ้าง', PH: 'วันหยุดประเพณี', AB: 'ขาดงาน', R: 'ลาออก',
     dows: ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'], dowsFull: ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'],
     months: ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'], buddhist: true,
@@ -536,7 +550,7 @@ const I18N = {
     reportPh: 'e.g. left at 05:00, forgot to check out', reportSent: 'Sent to Admin', legOk: 'Complete', legMiss: 'Missing', legLate: 'Late', legHol: 'Holiday work', legOff: 'Off / PH', legLeave: 'Leave',
     logout: 'Sign out', confirmLogout: 'Sign out?', earlyOut: 'Left {n} min early', otLine: 'OT {r}× {h} h',
     preOt: 'Pre-shift OT', preOtHint: 'OT counted from actual check-in to shift start', earlyTitle: 'Leaving before shift end ({t}) — choose a reason', rSL: 'Sick (sick leave)', rPL: 'Personal business', rBOSS: 'Sent home by supervisor / no work',
-    bossName: 'Supervisor name *', noteOpt: 'Note (optional)', earlyCut: 'Sick / personal leave during the day removes the diligence allowance', earlyLine: 'Left {h} h early · {r}', preOtLine: 'Pre-shift OT {h} h', preOtUnflag: 'OT not declared',
+    bossName: 'Supervisor name *', noteOpt: 'Note (optional)', earlyCut: 'Sick / personal leave during the day removes the diligence allowance', earlyLine: 'Left {h} h early · {r}', otBreakLine: 'OT break deducted: {m} min (OT ≥ 2 h)', preOtLine: 'Pre-shift OT {h} h', preOtUnflag: 'OT not declared',
     H: 'Day off', PL: 'Personal leave', SL: 'Sick leave', WOP: 'Leave without pay', PH: 'Public holiday', AB: 'Absent', R: 'Resigned',
     dows: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'], dowsFull: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
     months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], buddhist: false,
@@ -574,7 +588,7 @@ const I18N = {
     reportPh: 'ဥပမာ 05:00 ဆင်းခဲ့သည်', reportSent: 'Admin သို့ ပို့ပြီး', legOk: 'ပြည့်စုံ', legMiss: 'မပြည့်စုံ', legLate: 'နောက်ကျ', legHol: 'ပိတ်ရက်အလုပ်', legOff: 'ပိတ် / PH', legLeave: 'ခွင့်',
     logout: 'ထွက်ရန်', confirmLogout: 'ထွက်မလား?', earlyOut: '{n} မိနစ် စောဆင်း', otLine: 'OT {r}× {h} နာရီ',
     preOt: 'အလုပ်ချိန်မတိုင်မီ OT', preOtHint: 'ဝင်ချိန်မှ အလုပ်ချိန်စသည်အထိ OT တွက်မည်', earlyTitle: 'အလုပ်ချိန်မပြီးမီ ဆင်းသည် ({t}) — အကြောင်းပြချက်ရွေးပါ', rSL: 'နေမကောင်း (ဆေးခွင့်)', rPL: 'ကိုယ်ရေးကိစ္စ', rBOSS: 'ကြီးကြပ်သူက ပြန်ခိုင်း / အလုပ်မရှိ',
-    bossName: 'ကြီးကြပ်သူအမည် *', noteOpt: 'မှတ်ချက် (ရှိလျှင်)', earlyCut: 'နေ့လယ်ခွင့်ယူပါက ကြိုးစားကြေး ဖြတ်မည်', earlyLine: '{h} နာရီ စောဆင်း · {r}', preOtLine: 'အလုပ်ချိန်မတိုင်မီ OT {h} နာရီ', preOtUnflag: 'OT မတင်ပြ',
+    bossName: 'ကြီးကြပ်သူအမည် *', noteOpt: 'မှတ်ချက် (ရှိလျှင်)', earlyCut: 'နေ့လယ်ခွင့်ယူပါက ကြိုးစားကြေး ဖြတ်မည်', earlyLine: '{h} နာရီ စောဆင်း · {r}', otBreakLine: 'OT နားချိန် {m} မိနစ် နုတ်ပြီး (OT ≥ ၂ နာရီ)', preOtLine: 'အလုပ်ချိန်မတိုင်မီ OT {h} နာရီ', preOtUnflag: 'OT မတင်ပြ',
     H: 'ပိတ်ရက်', PL: 'ကိုယ်ရေးကိုယ်တာခွင့်', SL: 'ဆေးခွင့်', WOP: 'လစာမဲ့ခွင့်', PH: 'အများပြည်သူ ပိတ်ရက်', AB: 'ပျက်ကွက်', R: 'နုတ်ထွက်',
     dows: ['တနင်္ဂနွေ', 'တနင်္လာ', 'အင်္ဂါ', 'ဗုဒ္ဓဟူး', 'ကြာ', 'သော', 'စနေ'].map((s) => s.slice(0, 3)), dowsFull: ['တနင်္ဂနွေ', 'တနင်္လာ', 'အင်္ဂါ', 'ဗုဒ္ဓဟူး', 'ကြာသပတေး', 'သောကြာ', 'စနေ'],
     months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], buddhist: false,
@@ -1313,6 +1327,7 @@ function detailSheet() {
   if (d.late) notes.push(t('lateMin', { n: d.late }));
   if (d.early) notes.push(d.earlyReason ? t('earlyLine', { h: d.earlyH, r: t('r' + d.earlyReason) }) + (a && a.early_boss ? ' (' + a.early_boss + ')' : '') : t('earlyOut', { n: d.early }));
   if (d.preOt) notes.push(t('preOtLine', { h: d.preOt }) + (d.preOtUnflagged ? ' · ' + t('preOtUnflag') : ''));
+  if (d.otBreak) notes.push(t('otBreakLine', { m: d.otBreak }));
   if (d.ot1) notes.push(t('otLine', { r: 1, h: d.ot1 }));
   if (d.ot15) notes.push(t('otLine', { r: 1.5, h: d.ot15 }));
   if (d.ot2) notes.push(t('otLine', { r: 2, h: d.ot2 }));
@@ -1391,7 +1406,7 @@ window.doLogin = doLogin; window.doActivate = doActivate;
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.4';
 
 
 
@@ -1557,7 +1572,7 @@ function renderShell() {
       ${PAGES.map(([k, l, ic]) => `<button data-a="go" data-v="${k}" id="nav-${k}">${ic}${l}</button>`).join('')}
       <div style="margin-top:auto;padding:12px;border-radius:10px;background:#1A3F60;font-size:13px" class="col"><b>${esc(A.admin.name || A.admin.email)}</b><span style="color:#A9BDD0">${A.admin.role === 'it' ? 'IT Admin' : 'HR'} · ${esc(A.admin.email)}</span>
         <div class="row" style="gap:6px;margin-top:8px"><button class="btn sm" style="flex:1;background:#1F4A70;color:#fff" data-a="myPw">เปลี่ยนรหัสผ่าน</button><button class="btn sm" style="flex:1;background:#1F4A70;color:#fff" data-a="logout">ออกจากระบบ</button></div></div></aside>
-    <div class="mtop"><div class="col"><span style="font-size:12px;color:#A9BDD0">Admin · ${esc((A.settings.site || {}).name || 'WFDC')}</span><b id="mtitle"></b></div><select class="input" style="max-width:150px" id="mselect">${PAGES.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
+    <div class="mtop"><div class="col"><span style="font-size:12px;color:#A9BDD0">Admin · ${esc((A.settings.site || {}).name || 'WFDC')}</span><b id="mtitle"></b></div><div class="row" style="gap:10px;flex:none"><select class="input" style="max-width:130px" id="mselect">${PAGES.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select><button class="acct-btn" data-a="acct" aria-label="บัญชีของฉัน" aria-haspopup="true">${esc(((A.admin.name || A.admin.email || '?').trim()[0] || '?').toUpperCase())}</button></div></div>
     <main class="content" id="page"></main>
     <nav class="mnav">${PAGES.filter(([k]) => ['dash', 'rec', 'ts', 'emp'].includes(k)).map(([k, l, ic]) => `<button data-a="go" data-v="${k}" id="mnav-${k}">${ic}${l.split(' ')[0]}</button>`).join('')}</nav></div>`;
 }
@@ -1604,6 +1619,20 @@ function animIn(root, rowsOnly) {
   let i = 0;
   for (const el of set) { el.style.animation = `up .45s cubic-bezier(.2,.8,.2,1) ${Math.min(i++, 14) * 0.04}s both`; }
   countUp(root);
+}
+function closeAcct() { document.querySelectorAll('.acct-ov,.acct-pop').forEach((e) => e.remove()); }
+function acctMenu() {
+  if (document.querySelector('.acct-pop')) return closeAcct();
+  const ad = A.admin || {};
+  const ini = ((ad.name || ad.email || '?').trim()[0] || '?').toUpperCase();
+  document.body.insertAdjacentHTML('beforeend', `<div class="acct-ov" data-a="acctClose"></div>
+    <div class="acct-pop" role="menu">
+      <div style="padding:16px;display:flex;gap:12px;align-items:center"><span style="width:44px;height:44px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none">${esc(ini)}</span>
+        <div class="col" style="min-width:0"><b style="font-size:15px">${esc(ad.name || ad.email || '')}</b><span style="font-size:12.5px;color:var(--muted);overflow-wrap:anywhere">${esc(ad.email || '')} · ${ad.role === 'it' ? 'IT Admin' : 'HR'}</span></div></div>
+      <button class="ar" role="menuitem" data-a="myPw">🔑 เปลี่ยนรหัสผ่าน</button>
+      <button class="ar" role="menuitem" data-a="logout" style="color:#C0262D">⎋ ออกจากระบบ</button>
+      <div style="padding:8px 16px 12px;font-size:11px;color:var(--muted);text-align:center;border-top:1px solid #EEF1F4">CJ IT By Nutdanai Pathsith · v${APP_VERSION}</div>
+    </div>`);
 }
 function go(p) {
   A.page = p; store.set('aa_admin_page', p);
@@ -1897,15 +1926,17 @@ async function exportXlsx() {
   for (let i = dilCol + 2; i <= dilCol + 6; i++) ws.getColumn(i).width = 12;
   // ชีตรายละเอียดเวลา
   const ws2 = wb.addWorksheet('Detail');
-  ws2.addRow(['วันทำงาน', 'Emp ID', 'ชื่อ', 'Agency', 'กะ', 'เข้า', 'ออก', 'ระยะเข้า (ม.)', 'GPS ± (ม.)', 'รูปเข้า', 'รูปออก', 'แก้โดย Admin', 'หมายเหตุ', 'แจ้ง OT ก่อนกะ', 'เหตุผลออกก่อน', 'ชื่อหัวหน้า', 'หมายเหตุออกก่อน']);
+  ws2.addRow(['วันทำงาน', 'Emp ID', 'ชื่อ', 'Agency', 'กะ', 'เข้า', 'ออก', 'ระยะเข้า (ม.)', 'GPS ± (ม.)', 'รูปเข้า', 'รูปออก', 'แก้โดย Admin', 'หมายเหตุ', 'แจ้ง OT ก่อนกะ', 'เหตุผลออกก่อน', 'ชื่อหัวหน้า', 'หมายเหตุออกก่อน', 'OT ก่อนกะ (ชม.)', 'OT 1.5× / 3× รวม (ชม.)', 'หักพัก OT (นาที)']);
+  const dayOf = new Map(); for (const r of rows) for (const d of r.days) dayOf.set(r.emp.emp_id + '|' + d.date, d);
   for (const a of data.att) {
     const e = empById(a.emp_id);
     if (A.agencyFilter && e.agency !== A.agencyFilter) continue;
+    const cd = dayOf.get(a.emp_id + '|' + a.work_date) || {};
     ws2.addRow([a.work_date, a.emp_id, e.display_name, e.agency || '', a.shift_code, Calc.bkkDate(a.in_at) + ' ' + Calc.bkkTime(a.in_at), a.out_at ? Calc.bkkDate(a.out_at) + ' ' + Calc.bkkTime(a.out_at) : '',
-      a.in_dist, a.in_acc, a.in_photo ? 'มี' : '', a.out_photo ? 'มี' : '', a.edited ? 'ใช่' : '', a.note || '', a.pre_ot ? 'ใช่' : '', a.early_reason ? EARLY[a.early_reason] : '', a.early_boss || '', a.early_note || '']);
+      a.in_dist, a.in_acc, a.in_photo ? 'มี' : '', a.out_photo ? 'มี' : '', a.edited ? 'ใช่' : '', a.note || '', a.pre_ot ? 'ใช่' : '', a.early_reason ? EARLY[a.early_reason] : '', a.early_boss || '', a.early_note || '', (cd.preOt || 0), ((cd.ot15 || 0) + (cd.ot3 || 0)), cd.otBreak || 0]);
   }
   ws2.eachRow((row, i) => row.eachCell((cell) => { cell.font = { ...F, bold: i === 1 }; }));
-  [12, 13, 28, 12, 6, 17, 17, 12, 10, 8, 8, 12, 30, 12, 16, 18, 24].forEach((w, i) => { ws2.getColumn(i + 1).width = w; });
+  [12, 13, 28, 12, 6, 17, 17, 12, 10, 8, 8, 12, 30, 12, 16, 18, 24, 14, 20, 14].forEach((w, i) => { ws2.getColumn(i + 1).width = w; });
   // ชีตพนักงานที่ลาออก (เก็บประวัติไว้ ไม่ลบ)
   const ws3 = wb.addWorksheet('Resign Employee', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws3.addRow(['Emp ID', 'ชื่อ-สกุล', 'Agency', 'แผนก', 'ตำแหน่ง', 'Worker', 'ประเภทสัญญา', 'วันที่เข้างาน', 'วันที่มีผลลาออก', 'อายุงาน', 'อยู่ใน Timesheet รอบนี้', 'วันทำงานในรอบนี้']);
@@ -2095,7 +2126,7 @@ async function pageSet(tok) {
         ${n('site_lat', 'Latitude', site.lat, 'any')}${n('site_lng', 'Longitude', site.lng, 'any')}${n('site_radius', 'รัศมี (ม.)', site.radius ?? 200)}${n('max_accuracy', 'GPS แม่นยำไม่เกิน ± (ม.)', s.max_accuracy ?? 50)}</div>
       ${site.lat != null ? `<a class="sub" href="https://www.google.com/maps?q=${site.lat},${site.lng}" target="_blank" rel="noopener">ดูจุดบน Google Maps ↗</a>` : '<span class="chip warn">ยังไม่ได้ตั้งจุด — พนักงานจะเช็คอินไม่ได้</span>'}</section>
     <section class="card col" style="gap:14px"><h2 class="h2">กฎเวลา / OT</h2><div class="fgrid">
-      ${n('grace_minutes', 'ผ่อนผันสาย (นาที)', s.grace_minutes ?? 5)}${n('ot_min_minutes', 'OT ขั้นต่ำ (นาที)', s.ot_min_minutes ?? 30)}${n('ot_step_minutes', 'ปัด OT ทีละ (นาที)', s.ot_step_minutes ?? 30)}
+      ${n('grace_minutes', 'ผ่อนผันสาย (นาที)', s.grace_minutes ?? 5)}${n('ot_min_minutes', 'OT ขั้นต่ำ (นาที)', s.ot_min_minutes ?? 60)}${n('ot_step_minutes', 'ปัด OT ทีละ (นาที)', s.ot_step_minutes ?? 30)}
       ${n('holiday_hours', 'ชม. ทำงานวันหยุด (H8/PH8)', s.holiday_hours ?? 8)}${n('missing_after_hours', 'ถือว่าลืมออกหลังเลิกกะ (ชม.)', s.missing_after_hours ?? 4)}${n('dup_minutes', 'กันสแกนซ้ำ (นาที)', s.dup_minutes ?? 5)}
       ${n('cycle_start_day', 'วันเริ่มรอบ', s.cycle_start_day ?? 26)}<label class="field">วันเริ่มใช้ระบบ (ก่อนวันนี้ไม่นับ AB)<input class="input" type="date" id="s_go_live" value="${esc(s.go_live || '')}"></label>${n('photo_retention_days', 'เก็บรูป (วัน)', s.photo_retention_days ?? 90)}</div></section>
     <section class="card col" style="gap:14px"><h2 class="h2">อัตราเงิน (บาท)</h2><div class="fgrid">
@@ -2106,7 +2137,12 @@ async function pageSet(tok) {
       ${A.shiftList.map((x) => `<tr><td><b>${esc(x.code)}</b></td><td><input class="input" id="sh_name_${x.code}" value="${esc(x.name)}"></td><td><input class="input" id="sh_ts_${x.code}" value="${esc(x.ts_code)}" style="width:70px"></td>
         <td><input class="input" type="time" id="sh_st_${x.code}" value="${esc(x.start_time)}"></td><td><input class="input" type="time" id="sh_en_${x.code}" value="${esc(x.end_time)}"></td>
         <td><input class="input num" type="number" step="0.01" id="sh_fee_${x.code}" value="${esc(x.fee)}" style="width:100px"></td><td><input type="checkbox" id="sh_on_${x.code}" ${x.active ? 'checked' : ''}></td></tr>`).join('')}
-      </tbody></table></div><div class="row" style="justify-content:flex-end"><button class="btn navy" data-a="saveShifts">บันทึกกะ</button></div></section>
+        <tr style="background:#F4FBF7"><td><input class="input" id="nsh_code" placeholder="เช่น B" maxlength="3" style="width:64px;text-transform:uppercase"></td><td><input class="input" id="nsh_name" placeholder="ชื่อกะใหม่"></td><td><input class="input" id="nsh_ts" placeholder="รหัส" maxlength="4" style="width:70px"></td>
+        <td><input class="input" type="time" id="nsh_st"></td><td><input class="input" type="time" id="nsh_en"></td>
+        <td><input class="input num" type="number" step="0.01" id="nsh_fee" value="0" style="width:100px"></td><td><button class="btn sm primary" data-a="addShift">+ เพิ่มกะ</button></td></tr>
+      </tbody></table></div>
+      <div class="sub" style="font-size:13px">เพิ่มกะ: กรอกแถวสีเขียวแล้วกด “+ เพิ่มกะ” · ตัวอักษรกะห้ามซ้ำ (A–Z / ตัวเลข ไม่เกิน 3 ตัว) · เวลาออกน้อยกว่าเวลาเข้า = ข้ามวัน · ลบกะไม่ได้ ให้เอาติ๊ก “ใช้งาน” ออกแทน (กันประวัติลงเวลาเสีย)</div>
+      <div class="row" style="justify-content:flex-end"><button class="btn navy" data-a="saveShifts">บันทึกกะ</button></div></section>
     <div class="row wrap" style="align-items:flex-start;gap:16px">
       <section class="card col" style="flex:1 1 300px;gap:12px"><h2 class="h2">Agency</h2><div class="row"><input class="input" id="newAg" placeholder="ชื่อ Agency" style="flex:1"><button class="btn primary" data-a="addAg">เพิ่ม</button></div>
         <div class="row wrap">${A.agencies.map((a) => `<span class="chip gray">${esc(a.name)}</span>`).join('')}</div></section>
@@ -2125,7 +2161,7 @@ async function saveSet() {
   const radius = Math.min(200, Math.max(20, num('site_radius') || 200));
   const data = Object.assign({}, A.settings, {
     site: { name: g('site_name'), address: g('site_address'), lat: num('site_lat'), lng: num('site_lng'), radius },
-    max_accuracy: num('max_accuracy') || 50, grace_minutes: num('grace_minutes') ?? 5, ot_min_minutes: num('ot_min_minutes') ?? 30, ot_step_minutes: num('ot_step_minutes') || 30,
+    max_accuracy: num('max_accuracy') || 50, grace_minutes: num('grace_minutes') ?? 5, ot_min_minutes: num('ot_min_minutes') ?? 60, ot_step_minutes: num('ot_step_minutes') || 30,
     holiday_hours: num('holiday_hours') ?? 8, missing_after_hours: num('missing_after_hours') ?? 4, dup_minutes: num('dup_minutes') ?? 5, cycle_start_day: Math.min(28, Math.max(1, num('cycle_start_day') || 26)),
     photo_retention_days: Math.max(7, num('photo_retention_days') || 90), go_live: g('go_live') || null,
     rates: { day: num('r_day'), ot1: num('r_ot1'), ot15: num('r_ot15'), ot2: num('r_ot2'), ot3: num('r_ot3'), ph: num('r_ph'), diligence: num('r_diligence') ?? 400 },
@@ -2147,6 +2183,22 @@ async function saveShifts() {
   const rows = A.shiftList.map((x) => ({ code: x.code, name: $('sh_name_' + x.code).value, ts_code: $('sh_ts_' + x.code).value.trim(), start_time: $('sh_st_' + x.code).value, end_time: $('sh_en_' + x.code).value, fee: +$('sh_fee_' + x.code).value || 0, active: $('sh_on_' + x.code).checked, sort: x.sort }));
   const { error } = await sb.from('shifts').upsert(rows); if (error) return toast(errMsg(error), true);
   toast('บันทึกกะแล้ว'); pageSet();
+}
+async function addShift() {
+  const code = $('nsh_code').value.trim().toUpperCase(), name = $('nsh_name').value.trim(), ts = $('nsh_ts').value.trim();
+  const st = $('nsh_st').value, en = $('nsh_en').value, fee = +$('nsh_fee').value || 0;
+  if (!/^[A-Z0-9]{1,3}$/.test(code)) return toast('ตัวอักษรกะ: A–Z หรือตัวเลข 1–3 ตัว', true);
+  if (A.shiftList.some((x) => x.code.toUpperCase() === code)) return toast(`มีกะ ${code} อยู่แล้ว`, true);
+  if (!name) return toast('ใส่ชื่อกะ', true);
+  if (!ts) return toast('ใส่รหัสใน Timesheet', true);
+  if (['H', 'PH', 'PL', 'SL', 'WOP', 'AB', 'R'].includes(ts.toUpperCase())) return toast(`รหัส ${ts} ใช้กับวันหยุด/ลาอยู่แล้ว เลือกรหัสอื่น`, true);
+  if (!/^\d{2}:\d{2}$/.test(st) || !/^\d{2}:\d{2}$/.test(en)) return toast('ใส่เวลาเข้า-ออกให้ครบ', true);
+  if (st === en) return toast('เวลาเข้าและออกต้องไม่เท่ากัน', true);
+  if (fee < 0) return toast('ค่ากะต้องไม่ติดลบ', true);
+  const sort = Math.max(0, ...A.shiftList.map((x) => +x.sort || 0)) + 1;
+  const { error } = await sb.from('shifts').insert({ code, name, ts_code: ts, start_time: st, end_time: en, fee, active: true, sort });
+  if (error) return toast(errMsg(error), true);
+  toast(`เพิ่มกะ ${code} แล้ว`); pageSet();
 }
 async function addAg() { const n = $('newAg').value.trim(); if (!n) return; const { error } = await sb.from('agencies').insert({ name: n }); if (error) return toast(errMsg(error), true); pageSet(); }
 async function addAdm() {
@@ -2188,8 +2240,9 @@ document.addEventListener('click', (ev) => { if (document.body.dataset.mode !== 
   const el = ev.target.closest('[data-a]'); if (!el || el.disabled) return;
   const a = el.dataset.a, v = el.dataset.v;
   if (a === 'modalBg') { if (ev.target === el) closeModal(); return; }
+  if (a !== 'acct' && a !== 'acctClose') closeAcct();
   const H = {
-    go: () => go(v), logout, close: closeModal, photo: () => showPhoto(v), editAtt: () => editAtt(v), saveAtt: () => saveAtt(v, el.dataset.emp), delAtt: () => delAtt(v),
+    go: () => go(v), logout, close: closeModal, addShift, acct: acctMenu, acctClose: closeAcct, photo: () => showPhoto(v), editAtt: () => editAtt(v), saveAtt: () => saveAtt(v, el.dataset.emp), delAtt: () => delAtt(v),
     recLoad: () => { A.recFrom = $('rf').value; A.recTo = $('rt').value; A.recEmp = $('re').value; $('recBody').innerHTML = skel('rows'); topLoad(true); loadRec().catch((e) => toast(errMsg(e), true)).finally(() => topLoad(false)); },
     cyc: () => { A.cycle = Calc.shiftCycle(A.cycle, +v, +(A.settings.cycle_start_day || 26)); go(A.page); },
     xlsx: () => exportXlsx().catch((e) => toast(errMsg(e), true)), print: () => window.print(),
