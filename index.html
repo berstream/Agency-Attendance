@@ -190,6 +190,10 @@ body.m-adm .side button{display:flex;align-items:center;gap:10px;height:42px;pad
 body.m-adm .side button.on{background:var(--navy2);color:#fff;font-weight:600}
 body.m-adm .content{flex:999 1 560px;min-width:0;padding:26px 30px 90px;display:flex;flex-direction:column;gap:18px}
 body.m-adm .mtop{display:none}
+body.m-adm .sh-handle{width:34px;height:34px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--muted);font-size:18px;cursor:grab;touch-action:none;display:inline-flex;align-items:center;justify-content:center}
+body.m-adm .sh-handle:hover{color:var(--navy);border-color:var(--navy)}
+body.m-adm tr.shrow.dragging{background:#EAF2FB!important;box-shadow:0 6px 18px rgba(19,50,79,.18);position:relative;z-index:2}
+body.m-adm tr.shrow.dragging .sh-handle{cursor:grabbing;color:var(--navy);border-color:var(--navy)}
 body.m-adm .acct-btn{width:40px;height:40px;border-radius:50%;border:2px solid #fff;background:#1F4A70;color:#fff;font-weight:700;font-size:16px;flex:none}
 body.m-adm .acct-ov{position:fixed;inset:0;background:rgba(10,25,40,.45);z-index:60;animation:fadein .15s ease both}
 body.m-adm .acct-pop{position:fixed;top:74px;right:12px;width:min(300px,calc(100vw - 24px));background:#fff;border-radius:16px;box-shadow:0 12px 36px rgba(0,0,0,.25);z-index:61;overflow:hidden;transform-origin:top right;animation:acctin .18s cubic-bezier(.2,.8,.2,1) both}
@@ -483,7 +487,7 @@ const Calc = (() => {
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.5.4';
+const APP_VERSION = '1.5.5';
 
 
 
@@ -1406,7 +1410,7 @@ window.doLogin = doLogin; window.doActivate = doActivate;
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.5.4';
+const APP_VERSION = '1.5.5';
 
 
 
@@ -1620,6 +1624,29 @@ function animIn(root, rowsOnly) {
   for (const el of set) { el.style.animation = `up .45s cubic-bezier(.2,.8,.2,1) ${Math.min(i++, 14) * 0.04}s both`; }
   countUp(root);
 }
+/* ===== ลากเรียงลำดับกะ (เมาส์ + นิ้ว) ===== */
+let shDrag = null;
+document.addEventListener('pointerdown', (ev) => { if (document.body.dataset.mode !== 'adm') return;
+  const h = ev.target.closest && ev.target.closest('.sh-handle'); if (!h) return;
+  ev.preventDefault(); const tr = h.closest('tr');
+  shDrag = { tr, moved: false }; tr.classList.add('dragging');
+  try { h.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+});
+document.addEventListener('pointermove', (ev) => { if (document.body.dataset.mode !== 'adm') return;
+  if (!shDrag) return; ev.preventDefault();
+  const over = document.elementFromPoint(ev.clientX, ev.clientY); const r = over && over.closest('tr.shrow');
+  if (!r || r === shDrag.tr || r.parentElement !== shDrag.tr.parentElement) return;
+  const b = r.getBoundingClientRect();
+  if (ev.clientY < b.top + b.height / 2) r.before(shDrag.tr); else r.after(shDrag.tr);
+  shDrag.moved = true;
+});
+document.addEventListener('pointerup', (ev) => { if (document.body.dataset.mode !== 'adm') return;
+  if (!shDrag) return;
+  shDrag.tr.classList.remove('dragging');
+  if (shDrag.moved) { const hnt = $('shOrderHint'); if (hnt) hnt.style.display = ''; }
+  shDrag = null;
+});
+document.addEventListener('pointercancel', (ev) => { if (document.body.dataset.mode !== 'adm') return; if (shDrag) { shDrag.tr.classList.remove('dragging'); shDrag = null; } });
 function closeAcct() { document.querySelectorAll('.acct-ov,.acct-pop').forEach((e) => e.remove()); }
 function acctMenu() {
   if (document.querySelector('.acct-pop')) return closeAcct();
@@ -2133,16 +2160,16 @@ async function pageSet(tok) {
       ${n('r_day', 'ค่าแรง/วัน (รวม fee)', R.day, 0.01)}${n('r_ot1', 'OT 1× /ชม.', R.ot1, 0.01)}${n('r_ot15', 'OT 1.5× /ชม.', R.ot15, 0.01)}${n('r_ot2', 'OT 2× /ชม.', R.ot2, 0.01)}${n('r_ot3', 'OT 3× /ชม.', R.ot3, 0.01)}${n('r_ph', 'PH /วัน', R.ph, 0.01)}${n('r_diligence', 'เบี้ยขยัน /รอบ (ไม่สาย ไม่ขาด ไม่ลา)', R.diligence ?? 400, 0.01)}</div></section>
     <section class="card col" style="gap:12px"><h2 class="h2">ข้อมูลบนรูป (Watermark)</h2><div class="row wrap" style="gap:8px 18px">${wmKeys.map(([k, l]) => `<label class="row" style="gap:6px;font-size:14px"><input type="checkbox" id="w_${k}" ${W[k] !== false ? 'checked' : ''}> ${l}</label>`).join('')}</div></section>
     <div class="row" style="justify-content:flex-end"><button class="btn primary" style="height:46px;padding:0 26px" data-a="saveSet">บันทึกการตั้งค่า</button></div>
-    <section class="card col" style="gap:12px"><h2 class="h2">กะทำงาน</h2><div class="scroll"><table class="tbl" style="min-width:640px"><thead><tr><th>กะ</th><th>ชื่อ</th><th>รหัสใน Timesheet</th><th>เข้า</th><th>ออก</th><th>ค่ากะ/วัน</th><th>ใช้งาน</th></tr></thead><tbody>
-      ${A.shiftList.map((x) => `<tr><td><b>${esc(x.code)}</b></td><td><input class="input" id="sh_name_${x.code}" value="${esc(x.name)}"></td><td><input class="input" id="sh_ts_${x.code}" value="${esc(x.ts_code)}" style="width:70px"></td>
+    <section class="card col" style="gap:12px"><h2 class="h2">กะทำงาน</h2><div class="scroll"><table class="tbl" style="min-width:640px"><thead><tr><th style="width:44px"></th><th>กะ</th><th>ชื่อ</th><th>รหัสใน Timesheet</th><th>เข้า</th><th>ออก</th><th>ค่ากะ/วัน</th><th>ใช้งาน</th></tr></thead><tbody>
+      ${A.shiftList.map((x) => `<tr class="shrow" data-code="${esc(x.code)}"><td><button type="button" class="sh-handle" aria-label="ลากเพื่อย้ายกะ ${esc(x.code)}" title="ลากเพื่อเรียงลำดับ">⠿</button></td><td><b>${esc(x.code)}</b></td><td><input class="input" id="sh_name_${x.code}" value="${esc(x.name)}"></td><td><input class="input" id="sh_ts_${x.code}" value="${esc(x.ts_code)}" style="width:70px"></td>
         <td><input class="input" type="time" id="sh_st_${x.code}" value="${esc(x.start_time)}"></td><td><input class="input" type="time" id="sh_en_${x.code}" value="${esc(x.end_time)}"></td>
         <td><input class="input num" type="number" step="0.01" id="sh_fee_${x.code}" value="${esc(x.fee)}" style="width:100px"></td><td><input type="checkbox" id="sh_on_${x.code}" ${x.active ? 'checked' : ''}></td></tr>`).join('')}
-        <tr style="background:#F4FBF7"><td><input class="input" id="nsh_code" placeholder="เช่น B" maxlength="3" style="width:64px;text-transform:uppercase"></td><td><input class="input" id="nsh_name" placeholder="ชื่อกะใหม่"></td><td><input class="input" id="nsh_ts" placeholder="รหัส" maxlength="4" style="width:70px"></td>
+        <tr style="background:#F4FBF7"><td></td><td><input class="input" id="nsh_code" placeholder="เช่น B" maxlength="3" style="width:64px;text-transform:uppercase"></td><td><input class="input" id="nsh_name" placeholder="ชื่อกะใหม่"></td><td><input class="input" id="nsh_ts" placeholder="รหัส" maxlength="4" style="width:70px"></td>
         <td><input class="input" type="time" id="nsh_st"></td><td><input class="input" type="time" id="nsh_en"></td>
         <td><input class="input num" type="number" step="0.01" id="nsh_fee" value="0" style="width:100px"></td><td><button class="btn sm primary" data-a="addShift">+ เพิ่มกะ</button></td></tr>
       </tbody></table></div>
-      <div class="sub" style="font-size:13px">เพิ่มกะ: กรอกแถวสีเขียวแล้วกด “+ เพิ่มกะ” · ตัวอักษรกะห้ามซ้ำ (A–Z / ตัวเลข ไม่เกิน 3 ตัว) · เวลาออกน้อยกว่าเวลาเข้า = ข้ามวัน · ลบกะไม่ได้ ให้เอาติ๊ก “ใช้งาน” ออกแทน (กันประวัติลงเวลาเสีย)</div>
-      <div class="row" style="justify-content:flex-end"><button class="btn navy" data-a="saveShifts">บันทึกกะ</button></div></section>
+      <div class="sub" style="font-size:13px">ลาก ⠿ เพื่อเรียงลำดับกะ (ลำดับนี้คือลำดับปุ่มเลือกกะในหน้าถ่ายรูปพนักงาน) · เพิ่มกะ: กรอกแถวสีเขียวแล้วกด “+ เพิ่มกะ” · ตัวอักษรกะห้ามซ้ำ (A–Z / ตัวเลข ไม่เกิน 3 ตัว) · เวลาออกน้อยกว่าเวลาเข้า = ข้ามวัน · ลบกะไม่ได้ ให้เอาติ๊ก “ใช้งาน” ออกแทน (กันประวัติลงเวลาเสีย)</div>
+      <div class="row" style="justify-content:flex-end;gap:12px"><span id="shOrderHint" class="chip amber" style="display:none">ลำดับเปลี่ยนแล้ว · กด “บันทึกกะ” เพื่อบันทึก</span><button class="btn navy" data-a="saveShifts">บันทึกกะ</button></div></section>
     <div class="row wrap" style="align-items:flex-start;gap:16px">
       <section class="card col" style="flex:1 1 300px;gap:12px"><h2 class="h2">Agency</h2><div class="row"><input class="input" id="newAg" placeholder="ชื่อ Agency" style="flex:1"><button class="btn primary" data-a="addAg">เพิ่ม</button></div>
         <div class="row wrap">${A.agencies.map((a) => `<span class="chip gray">${esc(a.name)}</span>`).join('')}</div></section>
@@ -2180,7 +2207,8 @@ function useHere() {
   }, (e) => toast('หาตำแหน่งไม่ได้: ' + e.message, true), { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
 }
 async function saveShifts() {
-  const rows = A.shiftList.map((x) => ({ code: x.code, name: $('sh_name_' + x.code).value, ts_code: $('sh_ts_' + x.code).value.trim(), start_time: $('sh_st_' + x.code).value, end_time: $('sh_en_' + x.code).value, fee: +$('sh_fee_' + x.code).value || 0, active: $('sh_on_' + x.code).checked, sort: x.sort }));
+  const order = [...document.querySelectorAll('tr.shrow')].map((r) => r.dataset.code);
+  const rows = A.shiftList.map((x) => ({ code: x.code, name: $('sh_name_' + x.code).value, ts_code: $('sh_ts_' + x.code).value.trim(), start_time: $('sh_st_' + x.code).value, end_time: $('sh_en_' + x.code).value, fee: +$('sh_fee_' + x.code).value || 0, active: $('sh_on_' + x.code).checked, sort: order.indexOf(x.code) >= 0 ? order.indexOf(x.code) + 1 : x.sort }));
   const { error } = await sb.from('shifts').upsert(rows); if (error) return toast(errMsg(error), true);
   toast('บันทึกกะแล้ว'); pageSet();
 }
