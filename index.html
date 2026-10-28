@@ -487,7 +487,7 @@ const Calc = (() => {
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.5.5';
+const APP_VERSION = '1.5.6';
 
 
 
@@ -532,7 +532,7 @@ const I18N = {
     }
   },
   en: {
-    title: 'Attendance Check-in', sub: 'Agency WFDC', loginSub: 'Staff: employee ID · Admin: email', empId: 'Employee ID', pin: '6-digit PIN',
+    title: 'Attendance Check-in', sub: 'Agency WFDC', loginSub: 'Staff use employee ID · Admin uses email', empId: 'Employee ID', pin: '6-digit PIN',
     empOrEmail: 'Employee ID or Admin email', adminPw: 'Admin password', roleEmp: 'Staff', roleAdm: 'Admin', roleEmpHint: 'Opens the staff check-in app', roleAdmHint: 'Opens Admin (Dashboard / Timesheet)',
     login: 'Sign in', firstTime: 'First time / Forgot PIN', actTitle: 'Activate account', actSub: 'Enter the 6-digit activation code from Admin, then set your PIN',
     actCode: 'Activation code (from Admin)', newPin: 'Set 6-digit PIN', confirmPin: 'Confirm PIN', activate: 'Activate', back: 'Back',
@@ -550,11 +550,11 @@ const I18N = {
     cancelled: 'Cancelled', effective: 'Effective', lateNotice: 'Late notice', sentOk: 'Submitted', confirmCancel: 'Cancel this request?', noItems: 'No items yet',
     myTime: 'My time', cycle: 'Cycle', list: 'List', calendar: 'Calendar', worked: 'Work days', days: 'days', otTotal: 'Total OT', hrs: 'h', late: 'Late', times: 'times', minutes: 'min',
     offLeave: 'Off / Leave', missing: 'Missed check-out', inT: 'In', outT: 'Out', noRecord: 'No record', notOut: 'Not out yet', working: 'Working', today: 'Today',
-    complete: 'Complete', holidayWork: 'Holiday work', dayOff: 'Day off', absent: 'Absent', noPhoto: 'No photo', reportAdmin: 'Tell Admin: missed check-out / wrong time',
+    complete: 'Complete', holidayWork: 'Holiday work', dayOff: 'Day off', absent: 'Absent', noPhoto: 'No photo', reportAdmin: 'Tell Admin — missed check-out / wrong time',
     reportPh: 'e.g. left at 05:00, forgot to check out', reportSent: 'Sent to Admin', legOk: 'Complete', legMiss: 'Missing', legLate: 'Late', legHol: 'Holiday work', legOff: 'Off / PH', legLeave: 'Leave',
     logout: 'Sign out', confirmLogout: 'Sign out?', earlyOut: 'Left {n} min early', otLine: 'OT {r}× {h} h',
     preOt: 'Pre-shift OT', preOtHint: 'OT counted from actual check-in to shift start', earlyTitle: 'Leaving before shift end ({t}) — choose a reason', rSL: 'Sick (sick leave)', rPL: 'Personal business', rBOSS: 'Sent home by supervisor / no work',
-    bossName: 'Supervisor name *', noteOpt: 'Note (optional)', earlyCut: 'Sick / personal leave during the day removes the diligence allowance', earlyLine: 'Left {h} h early · {r}', otBreakLine: 'OT break deducted: {m} min (OT ≥ 2 h)', preOtLine: 'Pre-shift OT {h} h', preOtUnflag: 'OT not declared',
+    bossName: 'Supervisor name *', noteOpt: 'Note (optional)', earlyCut: 'Sick / personal leave during the day removes the diligence allowance', earlyLine: 'Left {h} h early · {r}', otBreakLine: 'OT break deducted — {m} min (OT ≥ 2 h)', preOtLine: 'Pre-shift OT {h} h', preOtUnflag: 'OT not declared',
     H: 'Day off', PL: 'Personal leave', SL: 'Sick leave', WOP: 'Leave without pay', PH: 'Public holiday', AB: 'Absent', R: 'Resigned',
     dows: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'], dowsFull: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
     months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], buddhist: false,
@@ -1410,7 +1410,7 @@ window.doLogin = doLogin; window.doActivate = doActivate;
 (() => {
 
 /* ===== Config ===== */
-const APP_VERSION = '1.5.5';
+const APP_VERSION = '1.5.6';
 
 
 
@@ -2097,9 +2097,33 @@ async function resetDev(id) {
   const { error } = await sb.rpc('admin_reset_device', { p_emp: id }); if (error) return toast(errMsg(error), true);
   toast('รีเซ็ตเครื่องแล้ว'); go('emp');
 }
+const CSV_TEMPLATE_COLS = ['emp_id', 'title_th', 'first_th', 'last_th', 'title_en', 'first_en', 'last_en', 'agency', 'dept', 'position', 'worker', 'hire_type', 'gender', 'start_date', 'status', 'resign_date', 'extra_allowance', 'extra_note'];
+function csvTemplate() {
+  const ag = (A.agencies[0] && A.agencies[0].name) || 'The First';
+  const ex = ['DFMKD69099', 'นาย', 'สมชาย', 'ใจดี', 'Mr.', 'Somchai', 'Jaidee', ag, 'Food Service', 'Picker', 'Thai', 'Contract 1 year', 'Male', today(), 'Active', '', '0', ''];
+  const q = (v) => (/[",\n]/.test(v) ? '"' + String(v).replace(/"/g, '""') + '"' : v);
+  const csv = '\uFEFF' + [CSV_TEMPLATE_COLS, ex].map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'employee_template_' + today().replace(/-/g, '') + '.csv';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast('ดาวน์โหลด Template แล้ว · ลบแถวตัวอย่างก่อนนำเข้า');
+}
+// วันที่จาก Excel: 2026-10-01 · 1/10/2026 · 01/10/2569 (พ.ศ.) → YYYY-MM-DD (วัน/เดือน/ปี แบบไทย)
+function normDate(v) {
+  if (!v) return null;
+  const t = String(v).trim(); let m;
+  if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return `${+m[1] > 2400 ? +m[1] - 543 : m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  if ((m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/))) {
+    let y = +m[3]; if (y < 100) y += 2000; if (y > 2400) y -= 543;
+    return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  return t;
+}
 function importModal() {
   modal(`<div class="row between"><h2 class="h2">นำเข้าพนักงาน (CSV)</h2><button class="btn sm ghost" data-a="close">ปิด</button></div>
-    <div class="sub">หัวคอลัมน์: emp_id, title_th, first_th, last_th, first_en, last_en, agency, dept, position, worker, hire_type, start_date (YYYY-MM-DD), status, resign_date, extra_allowance · รหัสซ้ำ = อัปเดตข้อมูล</div>
+    <div class="row between wrap" style="gap:10px;background:#F4FBF7;border:1px solid #CDEBD9;border-radius:12px;padding:12px 14px"><div class="col" style="gap:2px"><b style="font-size:14px">ยังไม่มีไฟล์?</b><span class="sub" style="font-size:13px">ดาวน์โหลด Template กรอกใน Excel แล้วบันทึกเป็น <b>CSV UTF-8</b></span></div><button class="btn sm primary" data-a="csvTemplate">⬇ ดาวน์โหลด Template</button></div>
+    <div class="sub">หัวคอลัมน์: emp_id, title_th, first_th, last_th, title_en, first_en, last_en, agency, dept, position, worker, hire_type, gender, start_date, status, resign_date, extra_allowance, extra_note · วันที่ใส่ได้ทั้ง 2026-10-01 และ 01/10/2026 (ปี พ.ศ. ได้) · ต้องมี emp_id · รหัสซ้ำ = อัปเดตข้อมูล</div>
     <input type="file" accept=".csv,text/csv" id="csvf" class="input" style="padding-top:7px"><textarea class="input" id="csvt" placeholder="หรือวาง CSV ที่นี่"></textarea><button class="btn primary" data-a="doImport">นำเข้า</button>`);
 }
 function parseCsv(text) {
@@ -2125,7 +2149,8 @@ async function doImport() {
     if (!o.emp_id) continue;
     o.emp_id = o.emp_id.toUpperCase().replace(/\s/g, '');
     o.display_name = `${o.title_th || ''}${o.first_th || ''} ${o.last_th || ''}`.trim();
-    o.status = o.status === 'Resign' ? 'Resign' : 'Active';
+    o.status = /^resign/i.test(o.status || '') ? 'Resign' : 'Active';
+    for (const k of ['start_date', 'end_date', 'resign_date']) if (k in o) o[k] = normDate(o[k]);
     o.extra_allowance = +o.extra_allowance || 0;
     out.push(o);
   }
@@ -2270,7 +2295,7 @@ document.addEventListener('click', (ev) => { if (document.body.dataset.mode !== 
   if (a === 'modalBg') { if (ev.target === el) closeModal(); return; }
   if (a !== 'acct' && a !== 'acctClose') closeAcct();
   const H = {
-    go: () => go(v), logout, close: closeModal, addShift, acct: acctMenu, acctClose: closeAcct, photo: () => showPhoto(v), editAtt: () => editAtt(v), saveAtt: () => saveAtt(v, el.dataset.emp), delAtt: () => delAtt(v),
+    go: () => go(v), logout, close: closeModal, csvTemplate, addShift, acct: acctMenu, acctClose: closeAcct, photo: () => showPhoto(v), editAtt: () => editAtt(v), saveAtt: () => saveAtt(v, el.dataset.emp), delAtt: () => delAtt(v),
     recLoad: () => { A.recFrom = $('rf').value; A.recTo = $('rt').value; A.recEmp = $('re').value; $('recBody').innerHTML = skel('rows'); topLoad(true); loadRec().catch((e) => toast(errMsg(e), true)).finally(() => topLoad(false)); },
     cyc: () => { A.cycle = Calc.shiftCycle(A.cycle, +v, +(A.settings.cycle_start_day || 26)); go(A.page); },
     xlsx: () => exportXlsx().catch((e) => toast(errMsg(e), true)), print: () => window.print(),
